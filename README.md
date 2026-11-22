@@ -11,4 +11,5 @@ https://github.com/hankerila-MA/HKL-EA8
 1. by pass as air cond.
 2. control air conditioners 5 IR
 3. vent for basement
+4. connect to Telegram bot
 
