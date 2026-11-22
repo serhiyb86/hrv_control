@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HRV Control — CH-HRV3.5KDC (MOCKUP)</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#1d2329;--mut:#6b7680;--line:#dde3e8;--acc:#1f7a5c;--acc2:#e6f3ee;
+--warn:#b7791f;--warnbg:#fff6e0;--err:#c0392b;--errbg:#fdecea;--blue:#2563a8;--bluebg:#e8f0fb}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:#16202a;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:600}
+header .sub{font-size:12px;color:#9fb0bf}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:20px;background:#24313d}
+.dot{width:8px;height:8px;border-radius:50%;background:#3ad07f}
+.dot.bad{background:#e74c3c}
+header .sp{flex:1}
+header a{color:#cfe;font-size:13px}
+nav{display:flex;gap:2px;background:#fff;border-bottom:1px solid var(--line);padding:0 10px;overflow-x:auto}
+nav button{border:0;background:none;padding:11px 14px;font-size:14px;cursor:pointer;color:var(--mut);border-bottom:3px solid transparent;white-space:nowrap}
+nav button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
+main{max-width:1100px;margin:0 auto;padding:14px}
+.tab{display:none}.tab.on{display:block}
+.grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h3{margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);display:flex;justify-content:space-between;align-items:center}
+.reg{font-size:11px;color:var(--mut);font-weight:400;text-transform:none;letter-spacing:0;background:#eef1f4;padding:1px 6px;border-radius:4px;font-family:monospace}
+.big{font-size:34px;font-weight:700;line-height:1.1}
+.unit{font-size:16px;color:var(--mut);font-weight:400}
+.temps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+@media(max-width:700px){.temps{grid-template-columns:repeat(2,1fr)}}
+.t{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.t .lbl{font-size:12px;color:var(--mut);display:flex;justify-content:space-between}
+.power{display:flex;align-items:center;gap:16px}
+.pwr{width:74px;height:74px;border-radius:50%;border:0;font-size:30px;cursor:pointer;background:#d9dee3;color:#fff}
+.pwr.on{background:var(--acc);box-shadow:0 0 0 6px var(--acc2)}
+.speeds{display:flex;gap:4px;flex-wrap:wrap;margin:6px 0}
+.speeds button{width:34px;height:34px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;font-weight:600}
+.speeds button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.speeds button.stop{width:auto;padding:0 10px}
+.row{display:flex;align-items:center;gap:8px;margin:6px 0;flex-wrap:wrap}
+.flags{display:flex;flex-wrap:wrap;gap:6px}
+.flag{font-size:12px;padding:4px 9px;border-radius:14px;background:#eef1f4;color:var(--mut)}
+.flag.on{background:var(--acc2);color:var(--acc);font-weight:600}
+.flag.warn{background:var(--warnbg);color:var(--warn);font-weight:600}
+.flag.err{background:var(--errbg);color:var(--err);font-weight:600}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border-bottom:1px solid var(--line);padding:7px 6px;text-align:left;vertical-align:middle}
+th{font-size:12px;color:var(--mut);font-weight:600;background:#fafbfc}
+input[type=number],select,input[type=text],input[type=time]{padding:5px 7px;border:1px solid #c8d0d7;border-radius:6px;font-size:14px}
+input[type=number]{width:80px}
+.btn{padding:6px 12px;border:1px solid #c8d0d7;background:#fff;border-radius:6px;cursor:pointer;font-size:13px}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.btn.dng{background:#fff;border-color:var(--err);color:var(--err)}
+.btn:disabled{opacity:.45;cursor:default}
+.mut{color:var(--mut);font-size:12px}
+.changed{background:var(--warnbg)}
+.note{background:var(--bluebg);border-left:4px solid var(--blue);padding:8px 12px;border-radius:4px;font-size:13px;margin:8px 0}
+.note.warn{background:var(--warnbg);border-color:var(--warn)}
+.switch{position:relative;display:inline-block;width:42px;height:24px}
+.switch input{display:none}
+.slider{position:absolute;inset:0;background:#cfd6dc;border-radius:24px;cursor:pointer;transition:.2s}
+.slider:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:var(--acc)}
+.switch input:checked+.slider:before{transform:translateX(18px)}
+#log{background:#111;color:#9f9;font:12px monospace;padding:8px;height:200px;overflow:auto;white-space:pre-wrap;border-radius:6px}
+.mock{position:fixed;bottom:10px;right:10px;background:#7b2cbf;color:#fff;font-size:12px;padding:5px 10px;border-radius:6px;opacity:.9}
+.bar{height:8px;background:#eef1f4;border-radius:4px;overflow:hidden;margin-top:6px}
+.bar>div{height:100%;background:var(--acc)}
+.bypass-vis{font-size:12px;color:var(--mut);margin-top:4px}
+/* ---- energy charts ---- */
+#energy{--surface-1:#fcfcfb;--text-primary:#0b0b0b;--text-secondary:#52514e;--grid:#e6e5e1;
+ --series-1:#2a78d6;--series-2:#eb6834;--series-3:#1baf7a;--series-4:#eda100}
+.ev-seg{display:inline-flex;border:1px solid #c8d0d7;border-radius:7px;overflow:hidden}
+.ev-seg button{border:0;background:#fff;padding:6px 12px;font-size:13px;cursor:pointer;border-right:1px solid #c8d0d7}
+.ev-seg button:last-child{border-right:0}
+.ev-seg button.on{background:#16202a;color:#fff}
+.ev-tiles{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:12px 0}
+@media(max-width:800px){.ev-tiles{grid-template-columns:repeat(2,1fr)}}
+.ev-tile{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.ev-tile .lbl{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
+.ev-tile .v{font-size:28px;font-weight:700;color:var(--text-primary);margin-top:4px}
+.ev-tile .v small{font-size:14px;font-weight:400;color:var(--text-secondary)}
+.ev-tile .s{font-size:12px;color:var(--text-secondary);margin-top:2px}
+.ev-key{display:inline-block;width:10px;height:10px;border-radius:2px}
+.ev-chart{position:relative;background:var(--surface-1);border-radius:6px}
+.ev-chart svg{width:100%;height:auto;display:block}
+.ev-chart text{font:12px system-ui,Segoe UI,Arial,sans-serif;fill:var(--text-secondary)}
+.ev-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);margin-bottom:6px}
+.ev-legend span{display:inline-flex;align-items:center;gap:6px}
+.ev-legend i{display:inline-block;width:16px;height:2px;border-radius:1px}
+.ev-legend i.box{width:10px;height:10px;border-radius:2px}
+.ev-tip{position:absolute;pointer-events:none;background:#fff;border:1px solid var(--line);border-radius:6px;
+ box-shadow:0 2px 8px rgba(0,0,0,.12);padding:7px 9px;font-size:12px;display:none;min-width:150px;z-index:5}
+.ev-tip .h{color:var(--text-secondary);margin-bottom:4px}
+.ev-tip .r{display:flex;align-items:center;gap:6px;margin:2px 0;color:var(--text-secondary)}
+.ev-tip .r b{color:var(--text-primary);margin-left:auto;padding-left:10px}
+.ev-tip .r i{display:inline-block;width:12px;height:2px}
+.toast{position:fixed;top:60px;right:14px;background:#16202a;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;display:none}
+</style></head><body>
+
+<header>
+  <div><h1>CH-HRV3.5KDC — Ventilation</h1><div class="sub">HKL-EA8 · 192.168.1.200 · Modbus RTU addr 14 · 4800 8N1</div></div>
+  <span class="pill"><span class="dot" id="linkDot"></span><span id="linkTxt">Link OK · polled 1 s ago</span></span>
+  <span class="pill" id="hdrState">Unit ON · S5 / E5</span>
+  <span class="sp"></span>
+  <a href="#" onclick="show('manual');return false">Manual</a>
+  <a href="#" onclick="return false">Relays</a>
+</header>
+
+<nav id="nav">
+  <button data-t="dash" class="on">Dashboard</button>
+  <button data-t="settings">Unit settings</button>
+  <button data-t="auto">Automation</button>
+  <button data-t="energy">Energy</button>
+  <button data-t="adv">Advanced / Modbus</button>
+  <button data-t="manual">Manual</button>
+</nav>
+
+<main>
+
+<!-- ================= DASHBOARD ================= -->
+<section class="tab on" id="dash">
+  <div class="temps" style="margin-bottom:12px">
+    <div class="t"><div class="lbl">Room <span class="reg">R12</span></div><div class="big" id="tRoom">--<span class="unit"> °C</span></div></div>
+    <div class="t"><div class="lbl">Outdoor <span class="reg">R13</span></div><div class="big" id="tOut">--<span class="unit"> °C</span></div></div>
+    <div class="t"><div class="lbl">Exhaust air <span class="reg">R14</span></div><div class="big" id="tExh">--<span class="unit"> °C</span></div></div>
+    <div class="t"><div class="lbl">Defrost sensor <span class="reg">R15</span></div><div class="big" id="tDef">--<span class="unit"> °C</span></div></div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Power <span class="reg">R9</span></h3>
+      <div class="power">
+        <button class="pwr on" id="pwr" onclick="togglePower()">⏻</button>
+        <div><div class="big" id="pwrTxt" style="font-size:24px">ON</div>
+        <div class="mut" id="modeTxt">Mode: manual</div></div>
+      </div>
+      <div class="row mut" style="margin-top:12px">External on/off input <span class="reg">R16</span>: <b id="extIn">open</b></div>
+    </div>
+
+    <div class="card" style="grid-column:span 2;min-width:0">
+      <h3>Fan speed <span><span class="reg">R10</span> <span class="reg">R11</span></span></h3>
+      <div class="row"><label><input type="checkbox" id="linkFans" checked onchange="renderFans()"> Same speed for both fans</label></div>
+      <div><b>Supply</b> <span class="mut" id="supCode"></span></div>
+      <div class="speeds" id="spSup"></div>
+      <div id="exhBlock"><b>Exhaust</b> <span class="mut" id="exhCode"></span>
+      <div class="speeds" id="spExh"></div></div>
+      <div class="row" style="margin-top:8px">
+        <span class="mut">Presets:</span>
+        <button class="btn" onclick="preset(2,2)">Night (2)</button>
+        <button class="btn" onclick="preset(5,5)">Normal (5)</button>
+        <button class="btn" onclick="preset(10,10)">Boost (10)</button>
+        <button class="btn" onclick="preset(4,6)">Overpressure (S4 / E6)</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Status <span class="reg">R18 / R19 / R22</span></h3>
+      <div class="flags" id="flags"></div>
+      <table style="margin-top:10px">
+        <tr><td>Bypass window</td><td id="bpWin">19 – 22 °C</td></tr>
+        <tr><td>Electric heater stage</td><td id="heater">0</td></tr>
+        <tr><td>Defrost mode</td><td id="dMode">0</td></tr>
+        <tr><td>CO₂ on/off signal <span class="reg">R17</span></td><td id="co2sig">off</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Errors <span class="reg">R20</span></h3>
+      <div class="flags" id="errs"></div>
+      <div class="mut" style="margin-top:8px">Bits: B2 outdoor sensor, B3 defrost sensor, B4 room sensor, B5 EEPROM.</div>
+    </div>
+
+    <div class="card">
+      <h3>Heat recovery (calculated)</h3>
+      <div class="big" id="eff">--<span class="unit"> %</span></div>
+      <div class="bar"><div id="effBar" style="width:0"></div></div>
+      <div class="mut" style="margin-top:6px">Estimate = (room − exhaust) / (room − outdoor). Only an indicator, the unit has no supply-air sensor in the map.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= SETTINGS ================= -->
+<section class="tab" id="settings">
+  <div class="note">Values are read from the unit. Changed fields are highlighted. <b>Apply</b> writes only the changed registers (FC06), then reads them back to confirm.</div>
+  <div class="card">
+    <table id="setTbl">
+      <tr><th>Reg</th><th>Parameter</th><th>Current</th><th>New value</th><th>Range</th><th>Default</th></tr>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="btn pri" onclick="applySettings()">Apply changes</button>
+      <button class="btn" onclick="renderSettings()">Revert</button>
+      <button class="btn" onclick="restoreDefaults()">Fill factory defaults</button>
+      <span class="mut" id="setMsg"></span>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:12px">
+    <div class="card">
+      <h3>Bypass preview</h3>
+      <div id="bpPreview"></div>
+      <div class="bypass-vis">Bypass opens when X ≤ outdoor &lt; X + Y (manual p.19).</div>
+    </div>
+    <div class="card">
+      <h3>Restricted <span class="reg">R8 / R21</span></h3>
+      <table>
+        <tr><td>Modbus address</td><td><b>14</b></td><td><input type="number" value="14" min="1" max="16" id="newAddr"></td><td><button class="btn dng" onclick="confirmDanger('Change Modbus address? The controller will switch to the new address after the write.')">Change</button></td></tr>
+        <tr><td>Model selection</td><td><b>4</b> (3.5KDC)</td><td colspan="2" class="mut">Read-only here. A wrong model changes fan curves.</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================= AUTOMATION ================= -->
+<section class="tab" id="auto">
+  <div class="note warn">These features run on the ESP32, not on the HRV. They work only while the controller is powered and connected.</div>
+  <div class="grid">
+    <div class="card">
+      <h3>Auto-restart after power loss</h3>
+      <div class="row"><label class="switch"><input type="checkbox" id="autoRestart" checked><span class="slider"></span></label> <b>Enabled</b> (default)</div>
+      <div class="mut">The ESP32 stores the last commanded state (on/off and fan speeds) in flash. If the unit reports OFF after a power loss while it should be ON, the controller writes the stored state back.</div>
+      <table style="margin-top:8px">
+        <tr><td>Stored state</td><td id="stored">ON · S5 / E5</td></tr>
+        <tr><td>Last restore</td><td>never</td></tr>
+        <tr><td>Restore delay after link up</td><td><input type="number" value="10"> s</td></tr>
+      </table>
+    </div>
+
+    <div class="card" style="grid-column:span 2;min-width:0">
+      <h3>Fan control by outdoor / room temperature</h3>
+      <div class="row"><label class="switch"><input type="checkbox" id="tempCtl" onchange="renderAuto()"><span class="slider"></span></label> <b>Enabled</b>
+        <span class="mut">— while enabled, manual speed changes are temporary (until the next rule match)</span></div>
+      <div class="note" style="margin-top:6px"><b>Draft for discussion.</b> The doc says "to find out how to control". Proposal: rules are checked from top to bottom, the first match sets the speeds. Hysteresis prevents speed flapping near a threshold.</div>
+      <table id="rules">
+        <tr><th>#</th><th>Condition</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>
+      </table>
+      <div class="row">
+        <button class="btn" onclick="addRule()">+ Add rule</button>
+        Hysteresis <input type="number" value="1" step="0.5"> °C
+        Min hold time <input type="number" value="5"> min
+      </div>
+      <div class="row mut">Fallback when no rule matches: <select><option>keep current speed</option><option>Normal (5/5)</option></select></div>
+    </div>
+
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>Weekly timer <span class="mut" style="text-transform:none;letter-spacing:0" id="clock"></span></h3>
+    <div class="row"><label class="switch"><input type="checkbox" id="timerOn" checked onchange="renderTimer()"><span class="slider"></span></label> <b>Enabled</b>
+      <span class="mut">— up to 2 ON/OFF periods per day. At ON time the unit turns on at the period's speed; at OFF time it turns off (R9).</span></div>
+    <div class="note warn">Time comes from NTP over Ethernet (time zone Europe/Kyiv). If the time is unknown, the timer does nothing. Do not run the wall controller's own weekly timer at the same time.</div>
+    <div style="overflow-x:auto">
+    <table id="timerTbl"></table>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" onclick="copyDay(0,[1,2,3,4])">Copy Monday → Tue–Fri</button>
+      <button class="btn" onclick="copyDay(0,[1,2,3,4,5,6])">Copy Monday → all days</button>
+      <button class="btn" onclick="copyDay(5,[6])">Copy Saturday → Sunday</button>
+      <span class="sp" style="flex:1"></span>
+      <button class="btn pri" onclick="toast('Timer saved to flash')">Save timer</button>
+    </div>
+    <div class="row mut">Manual change during an ON period: <select><option>keep until the next timer event</option><option>revert after 2 h</option></select></div>
+    <div class="row">Next event: <b id="nextEv">—</b></div>
+  </div>
+</section>
+
+<!-- ================= ADVANCED ================= -->
+<!-- ================= ENERGY ================= -->
+<section class="tab" id="energy">
+  <div class="row" style="justify-content:space-between">
+    <div class="ev-seg" id="evRange">
+      <button data-r="24h" class="on">24 h</button><button data-r="7d">7 days</button>
+      <button data-r="30d">30 days</button><button data-r="12m">12 months</button>
+    </div>
+    <div class="row" style="margin:0">
+      <span class="mut">History: 412 KB · flash 0.5 of 1.4 MB used</span>
+      <button class="btn" onclick="toast('(mockup) energy.csv downloaded')">Download CSV</button>
+      <button class="btn dng" onclick="if(confirm('Delete all temperature and energy history on the controller? This cannot be undone.'))toast('(mockup) history cleared')">Clear history</button>
+    </div>
+  </div>
+
+  <div class="ev-tiles" id="evTiles"></div>
+
+  <div class="card">
+    <h3>Temperatures <span class="mut" style="text-transform:none;letter-spacing:0" id="evTempSub"></span></h3>
+    <div class="ev-legend" id="evTempLeg"></div>
+    <div class="ev-chart" id="evTemp"></div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>Heat kept vs lost <button class="btn" id="evTblBtn" onclick="evToggleTable()">Show table</button></h3>
+    <div class="ev-legend" id="evEnLeg"></div>
+    <div class="ev-chart" id="evEn"></div>
+    <div id="evTbl" style="display:none;max-height:260px;overflow:auto;margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>Heat recovery efficiency <span class="mut" style="text-transform:none;letter-spacing:0">heating hours only; bypass and defrost excluded</span></h3>
+    <div class="ev-chart" id="evEff"></div>
+  </div>
+
+  <div class="grid" style="margin-top:12px">
+    <div class="card">
+      <h3>Prices</h3>
+      <table>
+        <tr><td>Heat price <span class="mut">(what 1 kWh of heating costs you)</span></td><td><input type="number" id="evHeatP" value="4.32" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
+        <tr><td>Electricity price <span class="mut">(fans)</span></td><td><input type="number" id="evElP" value="4.32" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
+        <tr><td colspan="2"><label><input type="checkbox" checked disabled> Skip samples during defrost (R18 B3) and with bypass open (R18 B1)</label></td></tr>
+      </table>
+      <div class="mut" style="margin-top:8px">Calculated every poll from the four temperatures and the current fan speeds (R10/R11):<br>
+        kept = 0.335 × exhaust airflow × (room − exhaust)<br>
+        lost = 0.335 × supply airflow × (room − outdoor) − kept<br>
+        Only sensible heat. Moisture recovery is not counted, so real savings are a bit higher.</div>
+    </div>
+    <div class="card">
+      <h3>Airflow and fan power per speed</h3>
+      <div class="mut" style="margin-bottom:6px">Defaults are estimates (straight line to 350 m³/h). Replace with measured values if you have them.</div>
+      <div style="max-height:260px;overflow:auto"><table id="evFlowTbl"></table></div>
+      <div class="row"><button class="btn" onclick="toast('Airflow table saved')">Save</button> <button class="btn" onclick="toast('Defaults restored')">Restore defaults</button></div>
+    </div>
+  </div>
+</section>
+
+<section class="tab" id="adv">
+  <div class="grid">
+    <div class="card">
+      <h3>Link settings</h3>
+      <table>
+        <tr><td>Slave address</td><td><input type="number" value="14"></td></tr>
+        <tr><td>Baud</td><td><select><option>4800</option><option>9600</option><option>19200</option></select></td></tr>
+        <tr><td>Format</td><td><select><option>8N1</option><option>8E1</option></select></td></tr>
+        <tr><td>Poll interval</td><td><input type="number" value="2"> s</td></tr>
+        <tr><td>Timeout</td><td><input type="number" value="300"> ms</td></tr>
+        <tr><td>Temperature scale</td><td><select><option>×1 (°C)</option><option>÷10</option></select></td></tr>
+      </table>
+      <div class="row"><button class="btn pri">Save</button></div>
+      <table style="margin-top:8px">
+        <tr><td>Requests OK / failed</td><td>1532 / 4</td></tr>
+        <tr><td>Last error</td><td>timeout (E2) 14 min ago</td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Raw register access</h3>
+      <div class="row">Reg <input type="number" id="rawReg" value="12" min="0" max="65535">
+        Count <input type="number" value="1" min="1" max="30" style="width:60px"></div>
+      <div class="row"><button class="btn" onclick="rawRead()">Read FC03</button> <button class="btn">Read FC04</button></div>
+      <div class="row">Value <input type="number" id="rawVal" value="0"> <button class="btn dng" onclick="confirmDanger('Write raw value to register?')">Write FC06</button> <button class="btn dng">Write FC16</button></div>
+      <div class="mut" id="rawOut">TX: 0E 03 00 0C 00 01 44 F6  RX: 0E 03 02 00 16 ...</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>All registers (live) <button class="btn" onclick="renderRegs()">Refresh</button></h3>
+    <table id="regTbl"></table>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h3>Modbus log</h3>
+    <div id="log"></div>
+  </div>
+</section>
+
+<!-- ================= MANUAL ================= -->
+<section class="tab" id="manual">
+  <div class="grid">
+    <div class="card">
+      <h3>DIP switch SW4 (p.20)</h3>
+      <div class="note warn" style="margin-top:0">Turn the power off before changing.</div>
+      <table>
+        <tr><th>Switch</th><th>OFF</th><th>ON</th></tr>
+        <tr><td>SW4-1</td><td>Standard defrost using the exhaust fan</td><td>Defrost with an electric heater on the outdoor-air side (parameter 01 forced to 0)</td></tr>
+        <tr><td>SW4-2</td><td>Automatic bypass</td><td>Manual bypass by dry contact (free cooling); fans at high speed</td></tr>
+        <tr><td>SW4-3</td><td>CO₂ sensor</td><td>Humidity/temperature sensor (E3 if missing)</td></tr>
+        <tr><td>SW4-4</td><td>Not used</td><td>Not used</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Display error codes (p.19)</h3>
+      <table>
+        <tr><th>Code</th><th>Error</th></tr>
+        <tr><td>E1</td><td>Outdoor air temperature sensor</td></tr>
+        <tr><td>E2</td><td>EEPROM</td></tr>
+        <tr><td>E3</td><td>Exhaust air temperature sensor</td></tr>
+        <tr><td>E4</td><td>Defrost sensor</td></tr>
+        <tr><td>E5</td><td>Communication</td></tr>
+        <tr><td>E6</td><td>Supply air temperature sensor</td></tr>
+        <tr><td>E7</td><td>Exhaust fan</td></tr>
+        <tr><td>E8</td><td>Supply fan</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Specifications (p.5)</h3>
+      <table>
+        <tr><td>Airflow</td><td>350 m³/h (100 l/s)</td></tr>
+        <tr><td>Enthalpy efficiency</td><td>69 % heat / 66 % cool</td></tr>
+        <tr><td>Temperature efficiency</td><td>75 %</td></tr>
+        <tr><td>Sound pressure</td><td>28 dB(A)</td></tr>
+        <tr><td>Power</td><td>220 V / 1 ph / 50 Hz, 112 W</td></tr>
+        <tr><td>Cables</td><td>power 2×1.5 mm², control 2×0.5 mm²</td></tr>
+        <tr><td>Duct</td><td>Ø150 mm</td></tr>
+        <tr><td>Dimensions</td><td>804 × 270 × 882 mm, 37 kg</td></tr>
+        <tr><td>Fans</td><td>DC, 10 speeds each</td></tr>
+        <tr><td>Inputs</td><td>External on/off; fire alarm (dry contact, closed = off)</td></tr>
+        <tr><td>Model code (R21)</td><td>4</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>RS485 wiring</h3>
+      <table>
+        <tr><td>Main board terminal</td><td>12V | A | B | GND</td></tr>
+        <tr><td>ESP32 UART</td><td>RX GPIO14 / TX GPIO13</td></tr>
+        <tr><td>Link</td><td>Modbus RTU, addr 14, 4800 8N1</td></tr>
+      </table>
+      <div class="mut" style="margin-top:6px">Leave 12V unconnected. If there is no reply, swap A/B.</div>
+      <p><a href="#">Full PDF manual</a> <span class="mut">(link to a hosted copy, the PDF is too big for ESP32 flash)</span></p>
+    </div>
+  </div>
+</section>
+</main>
+
+<div class="toast" id="toast"></div>
+<div class="mock">MOCKUP · simulated data</div>
+
+<script>
+// ---------- simulated device ----------
+const SPEED_CODES=[0,2,3,5,8,9,10,11,12,13,14];       // index = speed level 0..10
+const R={2:19,3:3,4:30,5:-1,6:10,7:0x66,8:14,9:1,10:9,11:9,12:22,13:4,14:9,15:7,16:0,17:0,18:0b0100,19:0,20:0,21:4,22:0};
+const META={
+ 2:{n:'Bypass opening temperature X',u:'°C',min:5,max:30,def:19,w:1},
+ 3:{n:'Bypass temperature band Y',u:'°C',min:2,max:15,def:3,w:1},
+ 4:{n:'Defrost interval',u:'min',min:15,max:99,def:30,w:1},
+ 5:{n:'Outdoor temp that triggers defrost',u:'°C',min:-9,max:5,def:-1,w:1},
+ 6:{n:'Defrost duration',u:'min',min:2,max:20,def:10,w:1},
+ 7:{n:'CO₂ setpoint',u:'ppm',min:392,max:1960,def:1000,w:1,co2:1},
+ 8:{n:'Modbus address'},9:{n:'Unit on/off'},10:{n:'Supply fan speed'},11:{n:'Exhaust fan speed'},
+ 12:{n:'Room temperature'},13:{n:'Outdoor temperature'},14:{n:'Exhaust air temperature'},15:{n:'Defrost sensor temperature'},
+ 16:{n:'External on/off input'},17:{n:'CO₂ on/off signal'},18:{n:'Status bits'},19:{n:'Electric heater stage'},
+ 20:{n:'Error bits'},21:{n:'Model selection'},22:{n:'Defrost mode'}};
+const $=id=>document.getElementById(id);
+const lvl=c=>Math.max(0,SPEED_CODES.indexOf(c));
+const s16=v=>v>32767?v-65536:v;
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2200)}
+function log(t){const l=$('log');const d=new Date().toLocaleTimeString();l.textContent+=`[${d}] ${t}\n`;l.scrollTop=1e9}
+function write(reg,val){R[reg]=val;log(`FC06 write R${reg} = ${val}  → OK, read back ${val}`)}
+
+// ---------- tabs ----------
+function show(t){document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==t));
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t))}
+$('nav').onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
+
+// ---------- dashboard ----------
+function togglePower(){write(9,R[9]?0:1);renderDash();toast(R[9]?'Unit switched ON':'Unit switched OFF')}
+function speedButtons(el,reg){
+ let h=`<button class="stop ${R[reg]==0?'on':''}" onclick="setSpeed(${reg},0)">Stop</button>`;
+ for(let i=1;i<=10;i++)h+=`<button class="${lvl(R[reg])==i?'on':''}" onclick="setSpeed(${reg},${i})">${i}</button>`;
+ $(el).innerHTML=h}
+function setSpeed(reg,l){const c=SPEED_CODES[l];
+ if($('linkFans').checked){write(10,c);write(11,c)}else write(reg,c);renderDash()}
+function preset(s,e){$('linkFans').checked=(s==e);write(10,SPEED_CODES[s]);write(11,SPEED_CODES[e]);renderDash();toast(`Speeds set: S${s} / E${e}`)}
+function renderFans(){speedButtons('spSup',10);speedButtons('spExh',11);
+ $('exhBlock').style.display=$('linkFans').checked?'none':'block';
+ $('supCode').textContent=`level ${lvl(R[10])} (code ${R[10]})`+($('linkFans').checked?' — applies to both fans':'');
+ $('exhCode').textContent=`level ${lvl(R[11])} (code ${R[11]})`}
+function flag(t,c){return `<span class="flag ${c||''}">${t}</span>`}
+function renderDash(){
+ $('tRoom').innerHTML=s16(R[12])+'<span class="unit"> °C</span>';
+ $('tOut').innerHTML=s16(R[13])+'<span class="unit"> °C</span>';
+ $('tExh').innerHTML=s16(R[14])+'<span class="unit"> °C</span>';
+ $('tDef').innerHTML=s16(R[15])+'<span class="unit"> °C</span>';
+ $('pwr').classList.toggle('on',!!R[9]);$('pwrTxt').textContent=R[9]?'ON':'OFF';
+ $('modeTxt').textContent='Mode: '+($('tempCtl')&&$('tempCtl').checked?'auto (temperature rules)':'manual');
+ $('hdrState').textContent=`Unit ${R[9]?'ON':'OFF'} · S${lvl(R[10])} / E${lvl(R[11])}`;
+ $('extIn').textContent=R[16]?'closed':'open';
+ renderFans();
+ const b=R[18];
+ $('flags').innerHTML=(b&1?flag('FIRE ALARM','err'):flag('Fire alarm: no'))+
+   (b&2?flag('Bypass OPEN','on'):'')+(b&4?flag('Bypass closed'):'')+(b&8?flag('Defrosting','warn'):flag('Defrost: idle'));
+ $('bpWin').textContent=`${R[2]} – ${R[2]+R[3]} °C (outdoor now ${s16(R[13])} °C)`;
+ $('heater').textContent=R[19];$('dMode').textContent=R[22];$('co2sig').textContent=R[17]?'on':'off';
+ const e=R[20],E=[[4,'Outdoor sensor'],[8,'Defrost sensor'],[16,'Room sensor'],[32,'EEPROM']];
+ $('errs').innerHTML=e?E.filter(x=>e&x[0]).map(x=>flag(x[1],'err')).join(''):flag('No errors','on');
+ const r=s16(R[12]),o=s16(R[13]),x=s16(R[14]);
+ const ef=r!=o?Math.round(100*(r-x)/(r-o)):0;
+ $('eff').innerHTML=ef+'<span class="unit"> %</span>';$('effBar').style.width=Math.max(0,Math.min(100,ef))+'%';
+ $('stored').textContent=`${R[9]?'ON':'OFF'} · S${lvl(R[10])} / E${lvl(R[11])}`;
+}
+
+// ---------- settings ----------
+const toDisp=(r,v)=>META[r].co2?Math.round(v*9.8):s16(v);
+const toRaw=(r,v)=>META[r].co2?Math.round(v/9.8):(v<0?v+65536:v);
+function renderSettings(){
+ let h='<tr><th>Reg</th><th>Parameter</th><th>Current</th><th>New value</th><th>Range</th><th>Default</th></tr>';
+ for(const r of [2,3,4,5,6,7]){const m=META[r],cur=toDisp(r,R[r]);
+  h+=`<tr id="row${r}"><td><span class="reg">R${r}</span></td><td>${m.n}</td><td><b>${cur}</b> ${m.u}</td>`+
+   `<td><input type="number" id="in${r}" value="${cur}" min="${m.min}" max="${m.max}" ${m.co2?'step="10"':''} oninput="markChg(${r})"> ${m.u}</td>`+
+   `<td class="mut">${m.min} … ${m.max}</td><td class="mut">${m.def}</td></tr>`}
+ $('setTbl').innerHTML=h;$('setMsg').textContent='';bpPreview()}
+function markChg(r){$('row'+r).classList.toggle('changed',+$('in'+r).value!=toDisp(r,R[r]));bpPreview()}
+function applySettings(){let n=0,bad=[];
+ for(const r of [2,3,4,5,6,7]){const m=META[r],v=+$('in'+r).value;
+  if(v==toDisp(r,R[r]))continue;
+  if(v<m.min||v>m.max){bad.push(m.n);continue}
+  write(r,toRaw(r,v));n++}
+ renderSettings();renderDash();
+ $('setMsg').textContent=bad.length?'Out of range, not written: '+bad.join(', '):(n?`${n} register(s) written and verified`:'Nothing changed')}
+function restoreDefaults(){for(const r of [2,3,4,5,6,7]){$('in'+r).value=META[r].def;markChg(r)}}
+function bpPreview(){const X=+($('in2')?.value??R[2]),Y=+($('in3')?.value??R[3]);
+ $('bpPreview').innerHTML=`<div class="big" style="font-size:24px">${X} – ${X+Y} °C</div>`+
+  `<div class="mut">Outdoor now ${s16(R[13])} °C → bypass would be <b>${(s16(R[13])>=X&&s16(R[13])<X+Y)?'OPEN':'closed'}</b></div>`}
+function confirmDanger(t){if(confirm(t))toast('(mockup) write sent')}
+
+// ---------- automation ----------
+let rules=[
+ {c:'Outdoor < −15 °C',s:2,e:3,on:1},
+ {c:'Outdoor < −5 °C',s:3,e:4,on:1},
+ {c:'Room > 25 °C and outdoor < room − 3 °C',s:8,e:8,on:1},
+ {c:'Room > 24 °C and outdoor > room',s:2,e:2,on:1},
+ {c:'Otherwise (−5 … 30 °C)',s:5,e:5,on:1}];
+function renderAuto(){
+ let h='<tr><th>#</th><th>Condition</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
+ const opts=v=>[...Array(11).keys()].map(i=>`<option ${i==v?'selected':''}>${i}</option>`).join('');
+ rules.forEach((r,i)=>{h+=`<tr ${i==4&&$('tempCtl').checked?'class="changed"':''}><td>${i+1}</td><td><input type="text" value="${r.c}" style="width:100%"></td>`+
+  `<td><select>${opts(r.s)}</select></td><td><select>${opts(r.e)}</select></td>`+
+  `<td><input type="checkbox" ${r.on?'checked':''}></td><td><button class="btn" onclick="rules.splice(${i},1);renderAuto()">✕</button></td></tr>`});
+ $('rules').innerHTML=h;renderDash()}
+function addRule(){rules.push({c:'Outdoor > 28 °C',s:3,e:3,on:1});renderAuto()}
+
+// ---------- weekly timer ----------
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const P=(on,off,sp,en=1)=>({en,on,off,sp});
+let timer=[0,1,2,3,4].map(()=>[P('06:30','09:00',5),P('17:00','23:00',5)])
+  .concat([[P('08:00','23:30',5),P('00:00','00:00',3,0)],[P('08:00','23:30',5),P('00:00','00:00',3,0)]]);
+function renderTimer(){
+ const dis=$('timerOn').checked?'':'disabled';
+ const opts=v=>[...Array(10).keys()].map(i=>`<option ${i+1==v?'selected':''}>${i+1}</option>`).join('');
+ let h='<tr><th>Day</th><th>Period 1</th><th>ON</th><th>OFF</th><th>Speed</th><th style="border-left:2px solid var(--line)">Period 2</th><th>ON</th><th>OFF</th><th>Speed</th></tr>';
+ const today=(new Date().getDay()+6)%7;
+ timer.forEach((d,i)=>{h+=`<tr ${i==today?'style="background:var(--acc2)"':''}><td><b>${DAYS[i]}</b>${i==today?' <span class="mut">today</span>':''}</td>`;
+  d.forEach((p,k)=>{const f=(x)=>`onchange="tSet(${i},${k},'${x}',this)"`;
+   h+=`<td ${k?'style="border-left:2px solid var(--line)"':''}><input type="checkbox" ${p.en?'checked':''} ${dis} ${f('en')}></td>`+
+    `<td><input type="time" value="${p.on}" ${dis||(!p.en?'disabled':'')} ${f('on')}></td>`+
+    `<td><input type="time" value="${p.off}" ${dis||(!p.en?'disabled':'')} ${f('off')}></td>`+
+    `<td><select ${dis||(!p.en?'disabled':'')} ${f('sp')}>${opts(p.sp)}</select></td>`});
+  h+='</tr>'});
+ $('timerTbl').innerHTML=h;nextEvent()}
+function tSet(d,k,key,el){timer[d][k][key]=key=='en'?(el.checked?1:0):key=='sp'?+el.value:el.value;
+ const p=timer[d][k];if(p.en&&p.on>=p.off&&key!='en')toast('OFF time must be later than ON time');renderTimer()}
+function copyDay(src,dst){dst.forEach(d=>timer[d]=JSON.parse(JSON.stringify(timer[src])));renderTimer();toast(`${DAYS[src]} copied`)}
+function nextEvent(){
+ if(!$('timerOn').checked){$('nextEv').textContent='timer disabled';return}
+ const now=new Date(),today=(now.getDay()+6)%7,hm=now.toTimeString().slice(0,5);
+ for(let o=0;o<8;o++){const d=(today+o)%7;const ev=[];
+  timer[d].forEach(p=>{if(p.en){ev.push([p.on,'ON at speed '+p.sp]);ev.push([p.off,'OFF'])}});
+  ev.sort((a,b)=>a[0]<b[0]?-1:1);
+  for(const e of ev)if(o>0||e[0]>hm){$('nextEv').textContent=`${o==0?'today':o==1?'tomorrow':DAYS[d]} ${e[0]} — ${e[1]}`;return}}
+ $('nextEv').textContent='no periods set'}
+setInterval(()=>{$('clock').textContent='Controller time: '+new Date().toLocaleString()+' (NTP ok)'},1000);
+
+// ---------- energy (simulated history) ----------
+const EV={FLOW:[0,35,70,105,140,175,210,245,280,315,350],FANW:[0,8,11,15,20,27,36,48,63,85,112],range:'24h',cache:{}};
+const C1='var(--series-1)',C2='var(--series-2)',C3='var(--series-3)',C4='var(--series-4)';
+function evRand(seed){return()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const evRng=evRand(7),evNoise=[...Array(400)].map(()=>(evRng()-.5)*9);
+function evSample(t){
+  const d=new Date(t),doy=(t-new Date(d.getFullYear(),0,1))/864e5,h=d.getHours()+d.getMinutes()/60;
+  const f=Math.max(0,(Date.now()-t)/864e5),i=Math.min(398,Math.floor(f)),noise=evNoise[i]+(evNoise[i+1]-evNoise[i])*(f-i);
+  const out=8.5-12.5*Math.cos(2*Math.PI*(doy-20)/365)+3.5*Math.sin(2*Math.PI*(h-9)/24)+noise;
+  const room=out<18?22+0.4*Math.sin(2*Math.PI*(h-15)/24):Math.min(27,22+(out-18)*0.45);
+  const sp=(h<7||h>=23)?2:5,q=EV.FLOW[sp];
+  const bypass=out>=19&&out<22,heating=out<room-3&&!bypass;
+  const eff=bypass?0.05:0.74-0.006*sp,exh=room-eff*(room-out),sup=out+(room-exh);
+  const kept=heating?0.335*q*(room-exh):0,lost=heating?0.335*q*(room-out)-kept:0;
+  return{t,out,room,exh,sup,kept,lost,fan:EV.FANW[sp]};
+}
+function evStart(r){const n=new Date();
+  if(r=='24h')return Date.now()-864e5;
+  if(r=='7d')return new Date(n.getFullYear(),n.getMonth(),n.getDate()-6).getTime();
+  if(r=='30d')return new Date(n.getFullYear(),n.getMonth(),n.getDate()-29).getTime();
+  return new Date(n.getFullYear(),n.getMonth()-11,1).getTime()}
+function evKey(t,unit){const d=new Date(t);
+  return unit=='h'?new Date(d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()).getTime():
+         unit=='d'?new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime():new Date(d.getFullYear(),d.getMonth(),1).getTime()}
+function evGroup(samples,unit,stepH){const m=new Map();
+  for(const s of samples){const k=evKey(s.t,unit);let g=m.get(k);
+    if(!g){g={t:k,n:0,out:0,room:0,exh:0,sup:0,kept:0,lost:0,fan:0};m.set(k,g)}
+    g.n++;for(const f of['out','room','exh','sup'])g[f]+=s[f];
+    g.kept+=s.kept*stepH/1000;g.lost+=s.lost*stepH/1000;g.fan+=s.fan*stepH/1000}
+  return[...m.values()].map(g=>{for(const f of['out','room','exh','sup'])g[f]/=g.n;
+    g.eff=g.kept>0.01?100*g.kept/(g.kept+g.lost):null;return g})}
+function evData(r){if(EV.cache[r])return EV.cache[r];
+  const step=r=='24h'?6e5:36e5,stepH=step/36e5,s=[];
+  for(let t=evStart(r);t<=Date.now();t+=step)s.push(evSample(t));
+  const temp=r=='24h'||r=='7d'?s:evGroup(s,'d',stepH);
+  const bars=evGroup(s,r=='24h'?'h':r=='12m'?'m':'d',stepH);
+  const tot=bars.reduce((a,b)=>({kept:a.kept+b.kept,lost:a.lost+b.lost,fan:a.fan+b.fan}),{kept:0,lost:0,fan:0});
+  return EV.cache[r]={temp,bars,tot}}
+
+const evF=(t,o)=>new Date(t).toLocaleString('en-GB',o);
+const EV_FMT={
+  '24h':{tx:t=>evF(t,{hour:'2-digit',minute:'2-digit'}),tt:t=>evF(t,{weekday:'short',hour:'2-digit',minute:'2-digit'}),
+         bx:t=>evF(t,{hour:'2-digit'}),bt:t=>evF(t,{hour:'2-digit',minute:'2-digit'})+' – '+evF(t+36e5,{hour:'2-digit',minute:'2-digit'})},
+  '7d': {tx:t=>evF(t,{weekday:'short',day:'numeric'}),tt:t=>evF(t,{weekday:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+         bx:t=>evF(t,{weekday:'short',day:'numeric'}),bt:t=>evF(t,{weekday:'long',day:'numeric',month:'short'})},
+  '30d':{tx:t=>evF(t,{day:'numeric',month:'short'}),tt:t=>evF(t,{weekday:'short',day:'numeric',month:'short'}),
+         bx:t=>evF(t,{day:'numeric',month:'short'}),bt:t=>evF(t,{weekday:'short',day:'numeric',month:'short'})},
+  '12m':{tx:t=>evF(t,{month:'short'}),tt:t=>evF(t,{day:'numeric',month:'short',year:'numeric'}),
+         bx:t=>evF(t,{month:'short'}),bt:t=>evF(t,{month:'long',year:'numeric'})}};
+
+function evTicks(lo,hi,n){if(hi-lo<1e-9){lo-=1;hi+=1}
+  const raw=(hi-lo)/n,p=10**Math.floor(Math.log10(raw)),st=[1,2,2.5,5,10].map(m=>m*p).find(x=>x>=raw);
+  const r=[];for(let v=Math.floor(lo/st)*st;v<=Math.ceil(hi/st)*st+st/2;v+=st)r.push(+v.toFixed(6));return r}
+function evEl(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+function evTipRow(color,name,val,box){const r=evEl('div','r'),k=evEl('i');k.style.background=color;
+  if(box){k.style.width='10px';k.style.height='10px';k.style.borderRadius='2px'}
+  r.append(k,evEl('span',null,name),evEl('b',null,val));return r}
+function evPlaceTip(tip,svg,xVb,W){const r=svg.getBoundingClientRect(),px=xVb/W*r.width;
+  tip.style.display='block';const w=tip.offsetWidth;
+  tip.style.left=(px+14+w>r.width?px-14-w:px+14)+'px';tip.style.top='8px'}
+function evLegend(id,items){$(id).replaceChildren(...items.map(it=>{const s=evEl('span'),k=evEl('i',it.box?'box':'');
+  k.style.background=it.color;if(it.dash)k.style.background=`repeating-linear-gradient(90deg,${it.color} 0 4px,transparent 4px 7px)`;
+  s.append(k,document.createTextNode(it.name));return s}))}
+
+function evLine(el,o){
+  const W=960,H=o.h||260,ml=40,mr=o.endLabels?96:16,mt=12,mb=26,iw=W-ml-mr,ih=H-mt-mb,n=o.x.length;
+  let all=o.series.flatMap(s=>s.v).filter(v=>v!=null);if(o.ref)all.push(o.ref.v);
+  let tk=o.fixedY?evTicks(o.fixedY[0],o.fixedY[1],5):evTicks(Math.min(...all),Math.max(...all),5);
+  const lo=tk[0],hi=tk[tk.length-1],X=i=>ml+(n<2?iw/2:i*iw/(n-1)),Y=v=>mt+ih-(v-lo)/(hi-lo)*ih;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria}">`;
+  for(const v of tk)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${ml-8}" y="${Y(v)+4}" text-anchor="end">${v}${o.unit}</text>`;
+  const nt=n<=13?n:7;
+  for(let k=0;k<nt;k++){const i=Math.round(k*(n-1)/Math.max(1,nt-1));
+    s+=`<text x="${X(i)}" y="${H-6}" text-anchor="${k==0?'start':k==nt-1?'end':'middle'}">${o.fmtX(o.x[i])}</text>`}
+  if(o.ref)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(o.ref.v)}" y2="${Y(o.ref.v)}" stroke="var(--text-secondary)" stroke-dasharray="5 4"/>`+
+    `<text x="${ml+iw-4}" y="${Y(o.ref.v)-6}" text-anchor="end">${o.ref.label}</text>`;
+  const ends=[];
+  for(const se of o.series){let d='',pen=false;
+    se.v.forEach((v,i)=>{if(v==null){pen=false;return}d+=(pen?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1);pen=true});
+    s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" ${se.dash?'stroke-dasharray="6 4"':''}/>`;
+    const li=se.v.map((v,i)=>v==null?-1:i).filter(i=>i>=0).pop();
+    if(o.endLabels&&li!=null)ends.push({y:Y(se.v[li]),name:se.name,color:se.color})}
+  ends.sort((a,b)=>a.y-b.y);for(let i=1;i<ends.length;i++)if(ends[i].y-ends[i-1].y<15)ends[i].y=ends[i-1].y+15;
+  for(const e of ends)s+=`<line x1="${ml+iw+6}" x2="${ml+iw+16}" y1="${e.y}" y2="${e.y}" stroke="${e.color}" stroke-width="2"/><text x="${ml+iw+20}" y="${e.y+4}">${e.name}</text>`;
+  s+=`<line class="xh" x1="0" x2="0" y1="${mt}" y2="${mt+ih}" stroke="var(--text-secondary)" stroke-width="1" visibility="hidden"/>`;
+  for(const se of o.series)s+=`<circle class="dt" r="4" fill="${se.color}" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  s+=`<rect x="${ml}" y="${mt}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
+  el.innerHTML=s;const tip=evEl('div','ev-tip');el.append(tip);
+  const svg=el.querySelector('svg'),xh=svg.querySelector('.xh'),dots=[...svg.querySelectorAll('.dt')];
+  svg.onpointermove=e=>{const r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)*W/r.width;
+    const i=Math.max(0,Math.min(n-1,Math.round((sx-ml)/iw*(n-1)))),x=X(i);
+    xh.setAttribute('x1',x);xh.setAttribute('x2',x);xh.setAttribute('visibility','visible');
+    const rows=[evEl('div','h',o.fmtTip(o.x[i]))];
+    o.series.forEach((se,k)=>{const v=se.v[i];
+      if(v==null){dots[k].setAttribute('visibility','hidden');rows.push(evTipRow(se.color,se.name,'—'));return}
+      dots[k].setAttribute('cx',x);dots[k].setAttribute('cy',Y(v));dots[k].setAttribute('visibility','visible');
+      rows.push(evTipRow(se.color,se.name,v.toFixed(1)+o.unit))});
+    tip.replaceChildren(...rows);evPlaceTip(tip,svg,x,W)};
+  svg.onpointerleave=()=>{tip.style.display='none';xh.setAttribute('visibility','hidden');dots.forEach(d=>d.setAttribute('visibility','hidden'))};
+}
+
+function evBars(el,o){
+  const W=960,H=270,ml=48,mr=16,mt=26,mb=26,iw=W-ml-mr,ih=H-mt-mb,n=o.x.length,ns=o.series.length;
+  const tk=evTicks(0,Math.max(...o.series.flatMap(s=>s.v)),5),hi=tk[tk.length-1],Y=v=>mt+ih-v/hi*ih;
+  const gw=iw/n,bw=Math.max(3,Math.min(26,(gw*0.72-2*(ns-1))/ns));
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria}">`;
+  for(const v of tk)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${ml-8}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;
+  const every=Math.ceil(n/12);
+  for(let i=0;i<n;i++){const x0=ml+i*gw+(gw-(ns*bw+2*(ns-1)))/2;
+    o.series.forEach((se,j)=>{const v=se.v[i];if(v<=0)return;const x=x0+j*(bw+2),y=Y(v),y0=Y(0),r=Math.min(4,bw/2,y0-y);
+      s+=`<path d="M${x},${y0}V${y+r}Q${x},${y} ${x+r},${y}H${x+bw-r}Q${x+bw},${y} ${x+bw},${y+r}V${y0}Z" fill="${se.color}"/>`});
+    if(i%every==0)s+=`<text x="${ml+i*gw+gw/2}" y="${H-6}" text-anchor="middle">${o.fmtX(o.x[i])}</text>`;
+    s+=`<rect class="hit" data-i="${i}" x="${ml+i*gw}" y="${mt}" width="${gw}" height="${ih}" fill="transparent"/>`}
+  s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--text-secondary)"/>`;
+  s+=`<text x="${ml-8}" y="12" text-anchor="end">kWh</text></svg>`;
+  el.innerHTML=s;const tip=evEl('div','ev-tip');el.append(tip);const svg=el.querySelector('svg');
+  svg.querySelectorAll('.hit').forEach(h=>{h.onpointerenter=()=>{const i=+h.dataset.i;h.setAttribute('fill','rgba(0,0,0,.04)');
+    tip.replaceChildren(evEl('div','h',o.fmtTip(o.x[i])),...o.series.map(se=>evTipRow(se.color,se.name,se.v[i].toFixed(2)+' kWh',true)),...(o.extra?o.extra(i):[]));
+    evPlaceTip(tip,svg,ml+i*gw+gw,W)};
+    h.onpointerleave=()=>{h.setAttribute('fill','transparent');tip.style.display='none'}});
+}
+
+function evTile(label,val,unit,sub,color){const t=evEl('div','ev-tile'),l=evEl('div','lbl');
+  if(color){const k=evEl('span','ev-key');k.style.background=color;l.append(k)}
+  l.append(document.createTextNode(label));const v=evEl('div','v',val+' ');v.append(evEl('small',null,unit));
+  t.append(l,v,evEl('div','s',sub));return t}
+
+function renderEnergy(){
+  const r=EV.range,d=evData(r),F=EV_FMT[r],tot=d.tot,hp=+$('evHeatP').value,ep=+$('evElP').value;
+  const without=tot.kept+tot.lost,pct=without?Math.round(100*tot.kept/without):0;
+  const rangeTxt={'24h':'last 24 h','7d':'last 7 days','30d':'last 30 days','12m':'last 12 months'}[r];
+  $('evTiles').replaceChildren(
+    evTile('Heat kept at home',tot.kept.toFixed(1),'kWh',`${pct} % of ${without.toFixed(1)} kWh you would lose without the HRV`,C1),
+    evTile('Heat lost',tot.lost.toFixed(1),'kWh','leaves with the exhaust air',C2),
+    evTile('Fan electricity',tot.fan.toFixed(1),'kWh',`≈ ${(tot.fan*ep).toFixed(0)} ₴`),
+    evTile('Net saving',(tot.kept*hp-tot.fan*ep).toFixed(0),'₴',rangeTxt),
+    evTile('Return on fan power',tot.fan?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
+  const T=d.temp;
+  $('evTempSub').textContent=r=='24h'?'10-minute samples':r=='7d'?'hourly averages':'daily averages';
+  const ts=[{name:'Room',color:C1,v:T.map(x=>x.room)},{name:'Outdoor',color:C2,v:T.map(x=>x.out)},
+            {name:'Exhaust air',color:C3,v:T.map(x=>x.exh)},{name:'Supply (est.)',color:C4,v:T.map(x=>x.sup),dash:1}];
+  evLegend('evTempLeg',ts);
+  evLine($('evTemp'),{x:T.map(x=>x.t),series:ts,unit:'°',fmtX:F.tx,fmtTip:F.tt,endLabels:1,aria:'Temperatures, '+rangeTxt});
+  const B=d.bars,en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
+  evLegend('evEnLeg',en.map(e=>({...e,box:1})));
+  evBars($('evEn'),{x:B.map(b=>b.t),series:en,fmtX:F.bx,fmtTip:F.bt,aria:'Heat kept and lost, '+rangeTxt,
+    extra:i=>[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg outdoor',B[i].out.toFixed(1)+' °C')]});
+  evLine($('evEff'),{x:B.map(b=>b.t),series:[{name:'Efficiency',color:C1,v:B.map(b=>b.eff)}],unit:'%',fixedY:[0,100],h:200,
+    ref:{v:75,label:'Spec 75 %'},fmtX:F.bx,fmtTip:F.bt,aria:'Heat recovery efficiency, '+rangeTxt});
+  let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg outdoor</th></tr>';
+  for(const b of B)h+=`<tr><td>${F.bt(b.t)}</td><td>${b.kept.toFixed(2)}</td><td>${b.lost.toFixed(2)}</td><td>${b.fan.toFixed(2)}</td><td>${b.eff==null?'—':b.eff.toFixed(0)+' %'}</td><td>${b.out.toFixed(1)} °C</td></tr>`;
+  $('evTbl').innerHTML=h+'</table>';
+}
+function evToggleTable(){const t=$('evTbl'),on=t.style.display=='none';t.style.display=on?'block':'none';$('evTblBtn').textContent=on?'Hide table':'Show table'}
+$('evRange').onclick=e=>{const r=e.target.dataset.r;if(!r)return;EV.range=r;
+  [...$('evRange').children].forEach(b=>b.classList.toggle('on',b.dataset.r==r));renderEnergy()};
+(function(){let h='<tr><th>Speed</th><th>Code</th><th>Airflow m³/h</th><th>Fans W</th></tr>';
+  for(let i=1;i<=10;i++)h+=`<tr><td>${i}</td><td class="mut">${SPEED_CODES[i]}</td><td><input type="number" value="${EV.FLOW[i]}"></td><td><input type="number" value="${EV.FANW[i]}"></td></tr>`;
+  $('evFlowTbl').innerHTML=h})();
+
+// ---------- advanced ----------
+function renderRegs(){
+ let h='<tr><th>Reg</th><th>Name</th><th>Raw (hex)</th><th>Value</th><th></th></tr>';
+ for(let r=0;r<=22;r++){const m=META[r];
+  const v=R[r]??0;
+  h+=`<tr><td><span class="reg">R${r}</span></td><td>${m?m.n:'<span class="mut">not used</span>'}</td>`+
+   `<td style="font-family:monospace">0x${v.toString(16).toUpperCase().padStart(4,'0')}</td><td>${m&&m.co2?toDisp(r,v)+' ppm':s16(v)}</td>`+
+   `<td><button class="btn" onclick="$('rawReg').value=${r};$('rawVal').value=${v}">Edit</button></td></tr>`}
+ $('regTbl').innerHTML=h;log('FC03 read R0..R22 (23 registers) OK')}
+function rawRead(){const r=+$('rawReg').value;$('rawOut').textContent=`R${r} = ${R[r]??'exception 2 (illegal address)'}`;log(`FC03 read R${r}`)}
+
+// ---------- simulated polling ----------
+setInterval(()=>{R[12]=22+(Math.random()<.2?1:0);R[13]=4+(Math.random()<.3?-1:0);R[14]=9+(Math.random()<.3?1:0);
+ if(Math.random()<.05)R[18]^=8;renderDash();$('linkTxt').textContent='Link OK · polled just now'},2000);
+
+renderDash();renderSettings();renderAuto();renderTimer();renderEnergy();renderRegs();
+log('Link up: addr 14, 4800 8N1');
+</script>
+</body></html>
