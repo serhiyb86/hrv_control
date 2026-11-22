@@ -63,7 +63,6 @@ input[type=number]{width:80px}
 .switch input:checked+.slider{background:var(--acc)}
 .switch input:checked+.slider:before{transform:translateX(18px)}
 #log{background:#111;color:#9f9;font:12px monospace;padding:8px;height:200px;overflow:auto;white-space:pre-wrap;border-radius:6px}
-.mock{position:fixed;bottom:10px;right:10px;background:#7b2cbf;color:#fff;font-size:12px;padding:5px 10px;border-radius:6px;opacity:.9}
 .bar{height:8px;background:#eef1f4;border-radius:4px;overflow:hidden;margin-top:6px}
 .bar>div{height:100%;background:var(--acc)}
 .bypass-vis{font-size:12px;color:var(--mut);margin-top:4px}
@@ -96,15 +95,16 @@ input[type=number]{width:80px}
 .ev-tip .r b{color:var(--text-primary);margin-left:auto;padding-left:10px}
 .ev-tip .r i{display:inline-block;width:12px;height:2px}
 .toast{position:fixed;top:60px;right:14px;background:#16202a;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;display:none}
+.mock{position:fixed;bottom:10px;right:10px;background:#7b2cbf;color:#fff;font-size:12px;padding:5px 10px;border-radius:6px;opacity:.9;pointer-events:none}
 </style></head><body>
-
 <header>
-  <div><h1>CH-HRV3.5KDC — Ventilation</h1><div class="sub">HKL-EA8 · 192.168.1.200 · Modbus RTU addr 14 · 4800 8N1</div></div>
-  <span class="pill"><span class="dot" id="linkDot"></span><span id="linkTxt">Link OK · polled 1 s ago</span></span>
-  <span class="pill" id="hdrState">Unit ON · S5 / E5</span>
+  <div><h1>CH-HRV3.5KDC — Ventilation</h1><div class="sub" id="hdrSub">HKL-EA8 · Modbus RTU</div></div>
+  <span class="pill"><span class="dot bad" id="linkDot"></span><span id="linkTxt">connecting…</span></span>
+  <span class="pill" id="hdrState">—</span>
+  <span class="pill" id="hdrTime">—</span>
   <span class="sp"></span>
   <a href="#" onclick="show('manual');return false">Manual</a>
-  <a href="#" onclick="return false">Relays</a>
+  <a href="/relays">Relays</a>
 </header>
 
 <nav id="nav">
@@ -117,30 +117,27 @@ input[type=number]{width:80px}
 </nav>
 
 <main>
-
 <!-- ================= DASHBOARD ================= -->
 <section class="tab on" id="dash">
   <div class="temps" style="margin-bottom:12px">
-    <div class="t"><div class="lbl">Room <span class="reg">R12</span></div><div class="big" id="tRoom">--<span class="unit"> °C</span></div></div>
-    <div class="t"><div class="lbl">Outdoor <span class="reg">R13</span></div><div class="big" id="tOut">--<span class="unit"> °C</span></div></div>
-    <div class="t"><div class="lbl">Exhaust air <span class="reg">R14</span></div><div class="big" id="tExh">--<span class="unit"> °C</span></div></div>
-    <div class="t"><div class="lbl">Defrost sensor <span class="reg">R15</span></div><div class="big" id="tDef">--<span class="unit"> °C</span></div></div>
+    <div class="t"><div class="lbl">Room <span class="reg">R12</span></div><div class="big" id="tRoom">--</div></div>
+    <div class="t"><div class="lbl">Outdoor <span class="reg">R13</span></div><div class="big" id="tOut">--</div></div>
+    <div class="t"><div class="lbl">Exhaust air <span class="reg">R14</span></div><div class="big" id="tExh">--</div></div>
+    <div class="t"><div class="lbl">Defrost sensor <span class="reg">R15</span></div><div class="big" id="tDef">--</div></div>
   </div>
-
   <div class="grid">
     <div class="card">
       <h3>Power <span class="reg">R9</span></h3>
       <div class="power">
-        <button class="pwr on" id="pwr" onclick="togglePower()">⏻</button>
-        <div><div class="big" id="pwrTxt" style="font-size:24px">ON</div>
-        <div class="mut" id="modeTxt">Mode: manual</div></div>
+        <button class="pwr" id="pwr" onclick="togglePower()">⏻</button>
+        <div><div class="big" id="pwrTxt" style="font-size:24px">--</div>
+        <div class="mut" id="modeTxt"></div></div>
       </div>
-      <div class="row mut" style="margin-top:12px">External on/off input <span class="reg">R16</span>: <b id="extIn">open</b></div>
+      <div class="row mut" style="margin-top:12px">External on/off input <span class="reg">R16</span>: <b id="extIn">--</b></div>
     </div>
-
     <div class="card" style="grid-column:span 2;min-width:0">
       <h3>Fan speed <span><span class="reg">R10</span> <span class="reg">R11</span></span></h3>
-      <div class="row"><label><input type="checkbox" id="linkFans" checked onchange="renderFans()"> Same speed for both fans</label></div>
+      <div class="row"><label><input type="checkbox" id="linkFans" checked onchange="localStorage.linkFans=this.checked?1:0;renderFans()"> Same speed for both fans</label></div>
       <div><b>Supply</b> <span class="mut" id="supCode"></span></div>
       <div class="speeds" id="spSup"></div>
       <div id="exhBlock"><b>Exhaust</b> <span class="mut" id="exhCode"></span>
@@ -153,40 +150,41 @@ input[type=number]{width:80px}
         <button class="btn" onclick="preset(4,6)">Overpressure (S4 / E6)</button>
       </div>
     </div>
-
     <div class="card">
       <h3>Status <span class="reg">R18 / R19 / R22</span></h3>
       <div class="flags" id="flags"></div>
       <table style="margin-top:10px">
-        <tr><td>Bypass window</td><td id="bpWin">19 – 22 °C</td></tr>
-        <tr><td>Electric heater stage</td><td id="heater">0</td></tr>
-        <tr><td>Defrost mode</td><td id="dMode">0</td></tr>
-        <tr><td>CO₂ on/off signal <span class="reg">R17</span></td><td id="co2sig">off</td></tr>
+        <tr><td>Bypass window</td><td id="bpWin">--</td></tr>
+        <tr><td>Electric heater stage</td><td id="heater">--</td></tr>
+        <tr><td>Defrost mode</td><td id="dMode">--</td></tr>
+        <tr><td>CO₂ on/off signal <span class="reg">R17</span></td><td id="co2sig">--</td></tr>
       </table>
     </div>
-
     <div class="card">
       <h3>Errors <span class="reg">R20</span></h3>
       <div class="flags" id="errs"></div>
       <div class="mut" style="margin-top:8px">Bits: B2 outdoor sensor, B3 defrost sensor, B4 room sensor, B5 EEPROM.</div>
     </div>
-
     <div class="card">
-      <h3>Heat recovery (calculated)</h3>
-      <div class="big" id="eff">--<span class="unit"> %</span></div>
+      <h3>Heat recovery now</h3>
+      <div class="big" id="eff">--</div>
       <div class="bar"><div id="effBar" style="width:0"></div></div>
-      <div class="mut" style="margin-top:6px">Estimate = (room − exhaust) / (room − outdoor). Only an indicator, the unit has no supply-air sensor in the map.</div>
+      <table style="margin-top:8px">
+        <tr><td>Heat kept</td><td id="liveKept">--</td></tr>
+        <tr><td>Heat lost</td><td id="liveLost">--</td></tr>
+        <tr><td>Fans</td><td id="liveFan">--</td></tr>
+        <tr><td>Supply air (est.)</td><td id="liveSup">--</td></tr>
+      </table>
+      <div class="mut" style="margin-top:6px">Efficiency = (room − exhaust) / (room − outdoor). Power uses the airflow table in Energy.</div>
     </div>
   </div>
 </section>
 
 <!-- ================= SETTINGS ================= -->
 <section class="tab" id="settings">
-  <div class="note">Values are read from the unit. Changed fields are highlighted. <b>Apply</b> writes only the changed registers (FC06), then reads them back to confirm.</div>
+  <div class="note">Values are read from the unit. Changed fields are highlighted. <b>Apply</b> writes only the changed registers, then reads them back to confirm.</div>
   <div class="card">
-    <table id="setTbl">
-      <tr><th>Reg</th><th>Parameter</th><th>Current</th><th>New value</th><th>Range</th><th>Default</th></tr>
-    </table>
+    <table id="setTbl"></table>
     <div class="row" style="margin-top:10px">
       <button class="btn pri" onclick="applySettings()">Apply changes</button>
       <button class="btn" onclick="renderSettings()">Revert</button>
@@ -194,7 +192,6 @@ input[type=number]{width:80px}
       <span class="mut" id="setMsg"></span>
     </div>
   </div>
-
   <div class="grid" style="margin-top:12px">
     <div class="card">
       <h3>Bypass preview</h3>
@@ -204,8 +201,8 @@ input[type=number]{width:80px}
     <div class="card">
       <h3>Restricted <span class="reg">R8 / R21</span></h3>
       <table>
-        <tr><td>Modbus address</td><td><b>14</b></td><td><input type="number" value="14" min="1" max="16" id="newAddr"></td><td><button class="btn dng" onclick="confirmDanger('Change Modbus address? The controller will switch to the new address after the write.')">Change</button></td></tr>
-        <tr><td>Model selection</td><td><b>4</b> (3.5KDC)</td><td colspan="2" class="mut">Read-only here. A wrong model changes fan curves.</td></tr>
+        <tr><td>Modbus address</td><td><b id="curAddr">--</b></td><td><input type="number" min="1" max="16" id="newAddr"></td><td><button class="btn dng" onclick="changeAddr()">Change</button></td></tr>
+        <tr><td>Model selection</td><td><b id="model">--</b></td><td colspan="2" class="mut">Read-only here. A wrong model changes fan curves.</td></tr>
       </table>
     </div>
   </div>
@@ -217,54 +214,50 @@ input[type=number]{width:80px}
   <div class="grid">
     <div class="card">
       <h3>Auto-restart after power loss</h3>
-      <div class="row"><label class="switch"><input type="checkbox" id="autoRestart" checked><span class="slider"></span></label> <b>Enabled</b> (default)</div>
-      <div class="mut">The ESP32 stores the last commanded state (on/off and fan speeds) in flash. If the unit reports OFF after a power loss while it should be ON, the controller writes the stored state back.</div>
+      <div class="row"><label class="switch"><input type="checkbox" id="rstOn"><span class="slider"></span></label> <b>Enabled</b></div>
+      <div class="mut">The controller remembers the last state (on/off and fan speeds), including changes made on the wall controller. When the link comes back after an outage and the unit differs from that state, the controller writes it back.</div>
       <table style="margin-top:8px">
-        <tr><td>Stored state</td><td id="stored">ON · S5 / E5</td></tr>
-        <tr><td>Last restore</td><td>never</td></tr>
-        <tr><td>Restore delay after link up</td><td><input type="number" value="10"> s</td></tr>
+        <tr><td>Stored state</td><td id="stored">--</td></tr>
+        <tr><td>Last restore</td><td id="lastRst">never</td></tr>
+        <tr><td>Restore delay after link up</td><td><input type="number" id="rstDelay" min="0" max="600"> s</td></tr>
       </table>
+      <div class="row"><button class="btn pri" onclick="saveRst()">Save</button></div>
     </div>
 
     <div class="card" style="grid-column:span 2;min-width:0">
       <h3>Fan control by outdoor / room temperature</h3>
-      <div class="row"><label class="switch"><input type="checkbox" id="tempCtl" onchange="renderAuto()"><span class="slider"></span></label> <b>Enabled</b>
-        <span class="mut">— while enabled, manual speed changes are temporary (until the next rule match)</span></div>
-      <div class="note" style="margin-top:6px"><b>Draft for discussion.</b> The doc says "to find out how to control". Proposal: rules are checked from top to bottom, the first match sets the speeds. Hysteresis prevents speed flapping near a threshold.</div>
-      <table id="rules">
-        <tr><th>#</th><th>Condition</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>
-      </table>
+      <div class="row"><label class="switch"><input type="checkbox" id="rulesOn"><span class="slider"></span></label> <b>Enabled</b>
+        <span class="mut">— speeds change only when another rule takes over, so a manual change stays until then. Only while the unit is ON.</span></div>
+      <div class="mut" style="margin:6px 0">Rules are checked top to bottom; the first match sets the speeds. Ranges are “from ≤ value &lt; to”, an empty field means any.</div>
+      <div style="overflow-x:auto"><table id="rules"></table></div>
       <div class="row">
         <button class="btn" onclick="addRule()">+ Add rule</button>
-        Hysteresis <input type="number" value="1" step="0.5"> °C
-        Min hold time <input type="number" value="5"> min
+        Hysteresis <input type="number" id="hyst" step="0.5" min="0" max="5"> °C
+        Min hold time <input type="number" id="hold" min="0" max="240"> min
+        No rule matches: <select id="fb"><option value="0">keep current speed</option><option value="1">Normal (5/5)</option></select>
+        <button class="btn pri" onclick="saveRules()">Save rules</button>
       </div>
-      <div class="row mut">Fallback when no rule matches: <select><option>keep current speed</option><option>Normal (5/5)</option></select></div>
     </div>
-
   </div>
 
   <div class="card" style="margin-top:12px">
     <h3>Weekly timer <span class="mut" style="text-transform:none;letter-spacing:0" id="clock"></span></h3>
-    <div class="row"><label class="switch"><input type="checkbox" id="timerOn" checked onchange="renderTimer()"><span class="slider"></span></label> <b>Enabled</b>
-      <span class="mut">— up to 2 ON/OFF periods per day. At ON time the unit turns on at the period's speed; at OFF time it turns off (R9).</span></div>
-    <div class="note warn">Time comes from NTP over Ethernet (time zone Europe/Kyiv). If the time is unknown, the timer does nothing. Do not run the wall controller's own weekly timer at the same time.</div>
-    <div style="overflow-x:auto">
-    <table id="timerTbl"></table>
-    </div>
+    <div class="row"><label class="switch"><input type="checkbox" id="timerOn" onchange="renderTimer()"><span class="slider"></span></label> <b>Enabled</b>
+      <span class="mut">— up to 2 ON/OFF periods per day. At ON time the unit turns on with the fan speeds last set on the Dashboard (or by the temperature rules, if enabled); at OFF time it turns off. Saving applies the schedule immediately.</span></div>
+    <div class="note warn">Time comes from NTP (Europe/Kyiv). If the time is unknown, the timer does nothing. Do not run the wall controller's own weekly timer at the same time.</div>
+    <div style="overflow-x:auto"><table id="timerTbl"></table></div>
     <div class="row" style="margin-top:8px">
       <button class="btn" onclick="copyDay(0,[1,2,3,4])">Copy Monday → Tue–Fri</button>
       <button class="btn" onclick="copyDay(0,[1,2,3,4,5,6])">Copy Monday → all days</button>
       <button class="btn" onclick="copyDay(5,[6])">Copy Saturday → Sunday</button>
-      <span class="sp" style="flex:1"></span>
-      <button class="btn pri" onclick="toast('Timer saved to flash')">Save timer</button>
+      <span style="flex:1"></span>
+      <button class="btn pri" onclick="saveTimer()">Save timer</button>
     </div>
-    <div class="row mut">Manual change during an ON period: <select><option>keep until the next timer event</option><option>revert after 2 h</option></select></div>
-    <div class="row">Next event: <b id="nextEv">—</b></div>
+    <div class="row mut">Manual change: <select id="rev"><option value="0">keep until the next timer event</option><option value="60">revert after 1 h</option><option value="120">revert after 2 h</option><option value="240">revert after 4 h</option></select></div>
+    <div class="row">Next event: <b id="nextEv">—</b> <span class="mut" style="margin-left:14px">Last timer action:</span> <b id="tmrLast">—</b></div>
   </div>
 </section>
 
-<!-- ================= ADVANCED ================= -->
 <!-- ================= ENERGY ================= -->
 <section class="tab" id="energy">
   <div class="row" style="justify-content:space-between">
@@ -273,90 +266,90 @@ input[type=number]{width:80px}
       <button data-r="30d">30 days</button><button data-r="12m">12 months</button>
     </div>
     <div class="row" style="margin:0">
-      <span class="mut">History: 412 KB · flash 0.5 of 1.4 MB used</span>
-      <button class="btn" onclick="toast('(mockup) energy.csv downloaded')">Download CSV</button>
-      <button class="btn dng" onclick="if(confirm('Delete all temperature and energy history on the controller? This cannot be undone.'))toast('(mockup) history cleared')">Clear history</button>
+      <span class="mut" id="evStore"></span>
+      <button class="btn" onclick="location.href='/api/csv?range='+EV.range">Download CSV</button>
+      <button class="btn dng" onclick="clearHistory()">Clear history</button>
     </div>
   </div>
-
+  <div class="note warn" id="evMsg" style="display:none"></div>
   <div class="ev-tiles" id="evTiles"></div>
-
   <div class="card">
     <h3>Temperatures <span class="mut" style="text-transform:none;letter-spacing:0" id="evTempSub"></span></h3>
     <div class="ev-legend" id="evTempLeg"></div>
     <div class="ev-chart" id="evTemp"></div>
   </div>
-
   <div class="card" style="margin-top:12px">
     <h3>Heat kept vs lost <button class="btn" id="evTblBtn" onclick="evToggleTable()">Show table</button></h3>
     <div class="ev-legend" id="evEnLeg"></div>
     <div class="ev-chart" id="evEn"></div>
     <div id="evTbl" style="display:none;max-height:260px;overflow:auto;margin-top:8px"></div>
   </div>
-
   <div class="card" style="margin-top:12px">
-    <h3>Heat recovery efficiency <span class="mut" style="text-transform:none;letter-spacing:0">heating hours only; bypass and defrost excluded</span></h3>
+    <h3>Heat recovery efficiency <span class="mut" style="text-transform:none;letter-spacing:0">heating time only; bypass and defrost excluded</span></h3>
     <div class="ev-chart" id="evEff"></div>
   </div>
-
   <div class="grid" style="margin-top:12px">
     <div class="card">
       <h3>Prices</h3>
       <table>
-        <tr><td>Heat price <span class="mut">(what 1 kWh of heating costs you)</span></td><td><input type="number" id="evHeatP" value="4.32" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
-        <tr><td>Electricity price <span class="mut">(fans)</span></td><td><input type="number" id="evElP" value="4.32" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
-        <tr><td colspan="2"><label><input type="checkbox" checked disabled> Skip samples during defrost (R18 B3) and with bypass open (R18 B1)</label></td></tr>
+        <tr><td>Heat price <span class="mut">(what 1 kWh of heating costs you)</span></td><td><input type="number" id="evHeatP" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
+        <tr><td>Electricity price <span class="mut">(fans)</span></td><td><input type="number" id="evElP" step="0.01" onchange="renderEnergy()"> ₴/kWh</td></tr>
       </table>
+      <div class="row"><button class="btn pri" onclick="saveEnergy()">Save</button></div>
       <div class="mut" style="margin-top:8px">Calculated every poll from the four temperatures and the current fan speeds (R10/R11):<br>
         kept = 0.335 × exhaust airflow × (room − exhaust)<br>
         lost = 0.335 × supply airflow × (room − outdoor) − kept<br>
-        Only sensible heat. Moisture recovery is not counted, so real savings are a bit higher.</div>
+        Counted only while heating (outdoor below room), not during defrost (R18 B3) or with the bypass open (R18 B1).
+        Only sensible heat; moisture recovery is not counted, so real savings are a bit higher.</div>
     </div>
     <div class="card">
       <h3>Airflow and fan power per speed</h3>
-      <div class="mut" style="margin-bottom:6px">Defaults are estimates (straight line to 350 m³/h). Replace with measured values if you have them.</div>
-      <div style="max-height:260px;overflow:auto"><table id="evFlowTbl"></table></div>
-      <div class="row"><button class="btn" onclick="toast('Airflow table saved')">Save</button> <button class="btn" onclick="toast('Defaults restored')">Restore defaults</button></div>
+      <div class="mut" style="margin-bottom:6px">Defaults are estimates (straight line to 350 m³/h). Replace with measured values if you have them. Fan W is for both fans together.</div>
+      <div style="max-height:300px;overflow:auto"><table id="evFlowTbl"></table></div>
+      <div class="row"><button class="btn pri" onclick="saveEnergy()">Save</button> <button class="btn" onclick="flowDefaults()">Fill defaults</button></div>
     </div>
   </div>
 </section>
 
+<!-- ================= ADVANCED ================= -->
 <section class="tab" id="adv">
   <div class="grid">
     <div class="card">
       <h3>Link settings</h3>
       <table>
-        <tr><td>Slave address</td><td><input type="number" value="14"></td></tr>
-        <tr><td>Baud</td><td><select><option>4800</option><option>9600</option><option>19200</option></select></td></tr>
-        <tr><td>Format</td><td><select><option>8N1</option><option>8E1</option></select></td></tr>
-        <tr><td>Poll interval</td><td><input type="number" value="2"> s</td></tr>
-        <tr><td>Timeout</td><td><input type="number" value="300"> ms</td></tr>
-        <tr><td>Temperature scale</td><td><select><option>×1 (°C)</option><option>÷10</option></select></td></tr>
+        <tr><td>Slave address</td><td><input type="number" id="lAddr" min="1" max="247"></td></tr>
+        <tr><td>Baud</td><td><select id="lBaud"><option>1200</option><option>2400</option><option>4800</option><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select></td></tr>
+        <tr><td>Format</td><td><select id="lFmt"><option value="0">8N1</option><option value="1">8E1</option><option value="2">8O1</option><option value="3">8N2</option></select></td></tr>
+        <tr><td>Poll interval</td><td><input type="number" id="lPoll" min="1" max="60"> s</td></tr>
+        <tr><td>Timeout</td><td><input type="number" id="lTo" min="50" max="2000"> ms</td></tr>
+        <tr><td>Temperature scale</td><td><select id="lDiv"><option value="1">×1 (°C)</option><option value="10">÷10</option></select></td></tr>
+        <tr><td>Write function</td><td><select id="lWfc"><option value="6">FC06 single register</option><option value="16">FC16 multiple registers</option></select></td></tr>
       </table>
-      <div class="row"><button class="btn pri">Save</button></div>
+      <div class="row"><button class="btn pri" onclick="saveLink()">Save</button></div>
       <table style="margin-top:8px">
-        <tr><td>Requests OK / failed</td><td>1532 / 4</td></tr>
-        <tr><td>Last error</td><td>timeout (E2) 14 min ago</td></tr>
+        <tr><td>Requests OK / failed</td><td id="cnt">--</td></tr>
+        <tr><td>Last error</td><td id="lastErr">--</td></tr>
+        <tr><td>Read mode</td><td id="rmode">--</td></tr>
+        <tr><td>Uptime</td><td id="uptime">--</td></tr>
       </table>
     </div>
-
     <div class="card">
       <h3>Raw register access</h3>
       <div class="row">Reg <input type="number" id="rawReg" value="12" min="0" max="65535">
-        Count <input type="number" value="1" min="1" max="30" style="width:60px"></div>
-      <div class="row"><button class="btn" onclick="rawRead()">Read FC03</button> <button class="btn">Read FC04</button></div>
-      <div class="row">Value <input type="number" id="rawVal" value="0"> <button class="btn dng" onclick="confirmDanger('Write raw value to register?')">Write FC06</button> <button class="btn dng">Write FC16</button></div>
-      <div class="mut" id="rawOut">TX: 0E 03 00 0C 00 01 44 F6  RX: 0E 03 02 00 16 ...</div>
+        Count <input type="number" id="rawCnt" value="1" min="1" max="30" style="width:60px"></div>
+      <div class="row"><button class="btn" onclick="raw('r3')">Read FC03</button> <button class="btn" onclick="raw('r4')">Read FC04</button></div>
+      <div class="row">Value(s) <input type="text" id="rawVal" value="0" style="width:140px">
+        <button class="btn dng" onclick="raw('w6')">Write FC06</button> <button class="btn dng" onclick="raw('w16')">Write FC16</button></div>
+      <div class="mut">FC16 takes comma-separated values starting at Reg. Writes ask for confirmation.</div>
+      <div class="mut" id="rawOut" style="font-family:monospace;margin-top:8px;white-space:pre-wrap"></div>
     </div>
   </div>
-
   <div class="card" style="margin-top:12px">
-    <h3>All registers (live) <button class="btn" onclick="renderRegs()">Refresh</button></h3>
+    <h3>All registers (live) <span class="mut" style="text-transform:none;letter-spacing:0">refreshed every 2 s · read-only; use “Load to raw access” to read or write one register</span></h3>
     <table id="regTbl"></table>
   </div>
-
   <div class="card" style="margin-top:12px">
-    <h3>Modbus log</h3>
+    <h3>Log <button class="btn" onclick="loadLog()">Refresh</button></h3>
     <div id="log"></div>
   </div>
 </section>
@@ -413,189 +406,447 @@ input[type=number]{width:80px}
         <tr><td>Link</td><td>Modbus RTU, addr 14, 4800 8N1</td></tr>
       </table>
       <div class="mut" style="margin-top:6px">Leave 12V unconnected. If there is no reply, swap A/B.</div>
-      <p><a href="#">Full PDF manual</a> <span class="mut">(link to a hosted copy, the PDF is too big for ESP32 flash)</span></p>
     </div>
   </div>
 </section>
 </main>
-
 <div class="toast" id="toast"></div>
 <div class="mock">MOCKUP · simulated data</div>
 
 <script>
-// ---------- simulated device ----------
-const SPEED_CODES=[0,2,3,5,8,9,10,11,12,13,14];       // index = speed level 0..10
-const R={2:19,3:3,4:30,5:-1,6:10,7:0x66,8:14,9:1,10:9,11:9,12:22,13:4,14:9,15:7,16:0,17:0,18:0b0100,19:0,20:0,21:4,22:0};
+// ===================== MOCK BACKEND — mockup only, NOT part of page.h =====================
+// Everything outside this <script> block (and the MOCKUP title/badge) is the same page as page.h.
+// This block stands in for the ESP32 firmware: it intercepts fetch('/api/...') and answers from a
+// simulated unit, using the same JSON formats as hrv_control.ino. UI changes go into the page part.
+(function(){
+const SPD=[0,2,3,5,8,9,10,11,12,13,14],lv=c=>SPD.indexOf(c),T0=Date.now(),FMT=['8N1','8E1','8O1','8N2'];
+const sx=v=>v>32767?v-65536:v,pad=n=>String(n).padStart(2,'0');
+// registers R0..R22 (R0/R1 not used); temperatures in °C, R5 = -1 stored as uint16
+const R=[null,null,19,3,30,65535,10,0x66,14,1,9,9,22,4,9,7,0,0,4,0,0,4,0];
+const C={link:{addr:14,baud:4800,fmt:0,poll:2,to:300,div:1,wfc:6},rst:{on:1,delay:10},
+  rules:{on:0,hyst:1,hold:5,fb:0,list:[[1,null,-15,null,null,0,3,2,3],[1,null,-5,null,null,0,3,3,4],
+    [1,null,null,25,null,1,3,8,8],[1,null,null,24,null,2,0,2,2],[1,null,null,null,null,0,3,5,5]]},
+  tmr:{on:0,rev:0,d:[0,1,2,3,4,5,6].map(d=>d<5?[[1,390,540],[1,1020,1380]]:[[1,480,1410],[0,0,0]])},
+  en:{hp:4.32,ep:4.32,flow:[0,35,70,105,140,175,210,245,280,315,350],fanw:[0,8,11,15,20,27,36,48,63,85,112]}};
+const des={on:1,s:5,e:5};
+let okc=1532,errc=4,lastErr='timeout',lastErrAt=T0-14*60000,lastPoll=T0,lastRst=0,act=-2,tmrLast='',manualAt=0,cleared=0,lastKey=-1;
+const LOG=[];
+function addLog(m){const d=new Date();LOG.push(`${pad(d.getDate())}.${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}  ${m}`);if(LOG.length>60)LOG.shift()}
+const tp=r=>sx(R[r])/C.link.div;
+
+// ---- control (mirrors setPower / setSpeeds in the firmware)
+function wr(reg,val){R[reg]=val&0xFFFF;okc+=2}
+function setPower(on,src){wr(9,on?1:0);des.on=on?1:0;if(on)act=-2;addLog(`${src}: unit ${on?'ON':'OFF'}`)}
+function setSpeeds(s,e,src){s=Math.max(0,Math.min(10,s));e=Math.max(0,Math.min(10,e));wr(10,SPD[s]);wr(11,SPD[e]);des.s=s;des.e=e;addLog(`${src}: speed S${s} / E${e}`)}
+
+// ---- live energy (mirrors energySample)
+function live(){const on=R[9]===1,ls=on?Math.max(0,lv(R[10])):0,le=on?Math.max(0,lv(R[11])):0,qs=C.en.flow[ls],qe=C.en.flow[le];
+  const room=tp(12),out=tp(13),exh=tp(14),st=R[18],def=!!(st&8),byp=!!(st&2),ok=!(R[20]&20);
+  const heating=on&&ok&&!def&&!byp&&out<room&&qe>0,kept=heating?Math.max(0,.335*qe*(room-exh)):0;
+  return{kept:Math.round(kept),lost:heating?Math.round(Math.max(0,.335*qs*(room-out)-kept)):0,
+    fan:Math.round(on?(C.en.fanw[ls]+C.en.fanw[le])/2:0),sup:on&&ok?+(byp?out:out+(qs>0?qe/qs:1)*(room-exh)).toFixed(1):null,heating}}
+
+// ---- temperature rules (mirrors ruleMatch / evalRules; min hold time is not simulated)
+function match(r,o,rm,h){const n=v=>v!=null;
+  if(n(r[1])&&o<r[1]-h)return false;if(n(r[2])&&o>=r[2]+h)return false;
+  if(n(r[3])&&rm<r[3]-h)return false;if(n(r[4])&&rm>=r[4]+h)return false;
+  if(r[5]==1&&!(o<=rm-(r[6]-h)))return false;if(r[5]==2&&!(o>rm-h))return false;return true}
+function evalRules(){if(!C.rules.on||R[9]!==1){act=-2;return}
+  const o=tp(13),rm=tp(12),L=C.rules.list;let c=L.findIndex(r=>r[0]&&match(r,o,rm,0));
+  if(act>=0&&act<L.length&&L[act][0]&&match(L[act],o,rm,C.rules.hyst)&&(c<0||c>=act))c=act;
+  if(c==act)return;act=c;
+  if(c>=0){const r=L[c];if(lv(R[10])!=r[7]||lv(R[11])!=r[8])setSpeeds(r[7],r[8],'Rule '+(c+1))}
+  else if(C.rules.fb==1&&(lv(R[10])!=5||lv(R[11])!=5))setSpeeds(5,5,'No rule matched')}
+
+// ---- weekly timer (mirrors timerSwitch / applyTimerNow / timerTick)
+function tmrSwitch(on,src){if(on){if(R[9]!==1)setPower(1,src);if(!C.rules.on&&(lv(R[10])!=des.s||lv(R[11])!=des.e))setSpeeds(des.s,des.e,src)}
+  else if(R[9]===1)setPower(0,src);const d=new Date();tmrLast=`${pad(d.getHours())}:${pad(d.getMinutes())} ${src} ${on?'ON':'OFF'}`}
+function applyTimerNow(src){if(!C.tmr.on)return;const d=new Date(),m=d.getHours()*60+d.getMinutes(),day=(d.getDay()+6)%7;
+  tmrSwitch(C.tmr.d[day].some(p=>p[0]&&p[1]<=m&&m<p[2]),src);manualAt=0}
+function timerTick(){if(!C.tmr.on)return;const d=new Date(),m=d.getHours()*60+d.getMinutes(),day=(d.getDay()+6)%7,key=day*1440+m;
+  if(key!=lastKey){lastKey=key;for(const p of C.tmr.d[day]){if(!p[0])continue;
+    if(p[1]==m){tmrSwitch(true,'Timer');manualAt=0}if(p[2]==m){tmrSwitch(false,'Timer');manualAt=0}}}
+  if(C.tmr.rev&&manualAt&&Date.now()-manualAt>=C.tmr.rev*60000){manualAt=0;applyTimerNow('Timer revert')}}
+
+// ---- /api/state
+function state(){const now=Date.now();
+  return{t:Math.floor(now/1000),tv:true,up:Math.floor((now-T0)/1000)+5400,div:C.link.div,
+    link:{ok:true,ago:Math.floor((now-lastPoll)/1000),okc,errc,err:lastErr,errAgo:lastErrAt?Math.floor((now-lastErrAt)/1000):-1,
+      echo:false,single:false,addr:C.link.addr,baud:C.link.baud,fmt:FMT[C.link.fmt]},
+    r:R.slice(),live:live(),des:{valid:1,on:des.on,s:des.s,e:des.e},rst:{last:lastRst,pend:-1},rule:{on:C.rules.on,act},
+    tmr:{on:C.tmr.on,manual:manualAt?Math.floor((now-manualAt)/1000):-1,last:tmrLast}}}
+
+// ---- /api/config POST (mirrors handleConfigSet)
+const numOrNull=s=>s==null||String(s).trim()===''?null:+s;
+function configSet(q){const s=q.section;
+  if(s=='link'){const b=+q.baud;if(![1200,2400,4800,9600,19200,38400,57600,115200].includes(b))return{ok:false,err:'bad baud'};
+    Object.assign(C.link,{addr:Math.max(1,Math.min(247,+q.addr)),baud:b,fmt:Math.max(0,Math.min(3,+q.fmt)),poll:Math.max(1,Math.min(60,+q.poll)),
+      to:Math.max(50,Math.min(2000,+q.to)),div:+q.div==10?10:1,wfc:+q.wfc==16?16:6});
+    addLog(`Link settings: addr ${C.link.addr}, ${C.link.baud} ${FMT[C.link.fmt]}, write FC${pad(C.link.wfc)}`)}
+  else if(s=='rst'){C.rst.on=+q.on?1:0;C.rst.delay=Math.max(0,Math.min(600,+q.delay||0))}
+  else if(s=='rules'){const n=Math.max(0,Math.min(8,+q.n||0)),L=[];
+    for(let i=0;i<n;i++){const f=(q['r'+i]||'').split(',');if(f.length!=9)return{ok:false,err:`rule ${i+1}: bad format`};
+      L.push([+f[0]?1:0,numOrNull(f[1]),numOrNull(f[2]),numOrNull(f[3]),numOrNull(f[4]),Math.max(0,Math.min(2,+f[5]||0)),numOrNull(f[6])??0,
+        Math.max(0,Math.min(10,+f[7]||0)),Math.max(0,Math.min(10,+f[8]||0))])}
+    C.rules.list=L;C.rules.on=+q.on?1:0;C.rules.hyst=Math.max(0,Math.min(5,numOrNull(q.hyst)??1));
+    C.rules.hold=Math.max(0,Math.min(240,+q.hold||0));C.rules.fb=+q.fb==1?1:0;act=-2;
+    addLog(`Temperature rules saved (${n} rules, ${C.rules.on?'enabled':'disabled'})`)}
+  else if(s=='tmr'){const D=[];
+    for(let d=0;d<7;d++){const f=(q['d'+d]||'').split(',').map(Number);if(f.length!=6)return{ok:false,err:`day ${d+1}: bad format`};
+      const day=[0,1].map(k=>[f[3*k]?1:0,Math.max(0,Math.min(1439,f[3*k+1])),Math.max(0,Math.min(1439,f[3*k+2]))]);
+      for(let k=0;k<2;k++)if(day[k][0]&&day[k][2]<=day[k][1])return{ok:false,err:`day ${d+1} period ${k+1}: OFF must be later than ON`};
+      D.push(day)}
+    C.tmr.d=D;C.tmr.on=+q.on?1:0;C.tmr.rev=Math.max(0,Math.min(1440,+q.rev||0));lastKey=-1;
+    addLog(`Weekly timer saved (${C.tmr.on?'enabled':'disabled'})`);applyTimerNow('Timer (saved)')}
+  else if(s=='en'){if(numOrNull(q.hp)!=null)C.en.hp=+q.hp;if(numOrNull(q.ep)!=null)C.en.ep=+q.ep;
+    for(const k of ['flow','fanw'])if(q[k]){const f=q[k].split(',');if(f.length==11)C.en[k]=f.map(v=>Math.max(0,Math.min(2000,Math.trunc(+v||0))))}
+    C.en.flow[0]=C.en.fanw[0]=0}
+  else return{ok:false,err:'unknown section'};
+  return{ok:true}}
+
+// ---- /api/write (mirrors handleWrite: R2..R7, range-checked, read back)
+function regWrite(q){const lo=[0,0,5,2,15,-9,2,0x28],hi=[0,0,30,15,99,5,20,0xC8],res=[];let all=true;
+  for(const [k,v0] of Object.entries(q)){if(k[0]!='r'||k.length<2)continue;const r=+k.slice(1),v=Math.trunc(+v0);
+    if(!(r>=2&&r<=7)||v<lo[r]||v>hi[r]){res.push({r,ok:false,err:'out of range'});all=false;continue}
+    wr(r,v);addLog(`Web: R${r} set to ${v}`);res.push({r,ok:true,err:''})}
+  return{res,ok:all}}
+
+// ---- /api/raw (the real unit answers FC03 only, R2..R22, at most 20 registers; otherwise it stays silent)
+function crc(b){let c=0xFFFF;for(const x of b){c^=x;for(let i=0;i<8;i++)c=c&1?(c>>1)^0xA001:c>>1}return[c&255,c>>8]}
+const frame=b=>{b=b.map(x=>x&255);return b.concat(crc(b))},hex=b=>b.map(x=>x.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+function raw(q){const reg=+q.reg,a=C.link.addr,op=q.op;if(!(reg>=0&&reg<=65535))return{ok:false,err:'bad register'};
+  const to=tx=>({ok:false,vals:[],err:'timeout',tx:hex(tx),rx:''});
+  if(op=='r3'||op=='r4'){const n=Math.max(1,Math.min(30,+q.cnt||1)),tx=frame([a,+op[1],reg>>8,reg,0,n]);
+    if(op=='r4'||reg<2||reg+n-1>22||n>20){errc++;lastErr='timeout';lastErrAt=Date.now();return to(tx)}
+    const v=R.slice(reg,reg+n),rx=frame([a,3,2*n,...v.flatMap(x=>[x>>8,x])]);okc++;return{ok:true,vals:v,err:'',tx:hex(tx),rx:hex(rx)}}
+  if(op=='w6'||op=='w16'){const v=op=='w6'?[Math.trunc(+q.val||0)]:String(q.vals||'').split(',').map(x=>Math.trunc(+x||0));
+    const tx=op=='w6'?frame([a,6,reg>>8,reg,v[0]>>8,v[0]]):frame([a,16,reg>>8,reg,0,v.length,2*v.length,...v.flatMap(x=>[x>>8,x])]);
+    if(reg<2||reg+v.length-1>22){addLog(`Raw ${op} R${reg}: timeout`);return to(tx)}
+    v.forEach((x,i)=>wr(reg+i,x));addLog(`Raw ${op} R${reg}: ok`);
+    return{ok:true,vals:[],err:'',tx:hex(tx),rx:hex(op=='w6'?tx:frame([a,16,reg>>8,reg,0,v.length]))}}
+  return{ok:false,err:'bad op'}}
+
+// ---- simulated history (same slots and JSON format as handleHistory)
+function rng(seed){return()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=rng(7),NOISE=[...Array(400)].map(()=>(rnd()-.5)*9);
+function sample(t){const d=new Date(t),doy=(t-new Date(d.getFullYear(),0,1))/864e5,h=d.getHours()+d.getMinutes()/60;
+  const f=Math.max(0,(Date.now()-t)/864e5),i=Math.min(398,Math.floor(f)),noise=NOISE[i]+(NOISE[i+1]-NOISE[i])*(f-i);
+  const out=8.5-12.5*Math.cos(2*Math.PI*(doy-20)/365)+3.5*Math.sin(2*Math.PI*(h-9)/24)+noise;
+  const room=out<18?22+0.4*Math.sin(2*Math.PI*(h-15)/24):Math.min(27,22+(out-18)*0.45);
+  const sp=(h<7||h>=23)?2:5,q=C.en.flow[sp],bypass=out>=19&&out<22,heating=out<room&&!bypass;
+  const eff=bypass?0.05:0.74-0.006*sp,exh=room-eff*(room-out),sup=out+(room-exh);
+  const kept=heating?0.335*q*(room-exh):0,lost=heating?Math.max(0,0.335*q*(room-out)-kept):0;
+  return{out,room,exh,sup,kept,lost,fan:C.en.fanw[sp]}}
+function history(range){
+  const now=Date.now(),H=36e5,day0=t=>{const d=new Date(t);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()};
+  const lastDays=n=>{const v=[];let d=day0(now);for(let i=0;i<n;i++){v.unshift(d);d=day0(d-H)}return v};
+  const curH=now-now%H;let ts,bs,step;
+  if(range=='7d'){ts=[...Array(168)].map((_,i)=>curH-(167-i)*H);bs=lastDays(7);step=H}
+  else if(range=='30d'){ts=lastDays(30);bs=ts;step=H}
+  else if(range=='12m'){ts=lastDays(365);const n=new Date(now);bs=[...Array(12)].map((_,i)=>new Date(n.getFullYear(),n.getMonth()-11+i,1).getTime());step=3*H}
+  else{range='24h';const m10=now-now%6e5;ts=[...Array(144)].map((_,i)=>m10-(143-i)*6e5);bs=[...Array(24)].map((_,i)=>curH-(23-i)*H);step=6e5}
+  const slot=(st,t)=>{let lo=0,hi=st.length;while(lo<hi){const m=(lo+hi)>>1;if(st[m]<=t)lo=m+1;else hi=m}return lo-1};
+  const ta=ts.map(()=>({n:0,room:0,out:0,exh:0,sup:0})),ba=bs.map(()=>({n:0,kept:0,lost:0,fan:0,out:0})),sh=step/H;
+  const start=Math.min(ts[0],bs[0]);
+  for(let t=start+Math.max(0,Math.ceil((cleared-start)/step))*step;t<=now;t+=step){const s=sample(t),i=slot(ts,t),j=slot(bs,t);
+    if(i>=0){const a=ta[i];a.n++;a.room+=s.room;a.out+=s.out;a.exh+=s.exh;a.sup+=s.sup}
+    if(j>=0){const b=ba[j];b.n++;b.kept+=s.kept*sh;b.lost+=s.lost*sh;b.fan+=s.fan*sh;b.out+=s.out}}
+  const r10=v=>Math.round(v*10);
+  return{range,now:Math.floor(now/1000),
+    temp:ts.map((t,i)=>{const a=ta[i];return a.n?[t/1000,r10(a.room/a.n),r10(a.out/a.n),r10(a.exh/a.n),r10(a.sup/a.n)]:[t/1000,null,null,null,null]}),
+    bars:bs.map((t,j)=>{const b=ba[j];return b.n?[t/1000,Math.round(b.kept),Math.round(b.lost),+b.fan.toFixed(1),r10(b.out/b.n)]:[t/1000,null,null,null,null]})}}
+function storage(){const k=cleared?0:1;
+  return{ok:true,total:1441792,used:24576+k*231720,min:{bytes:k*201600,files:k*7,oldest:''},hour:{bytes:k*28800,files:k*2,oldest:''},day:{bytes:k*1320,files:k,oldest:''}}}
+
+// ---- router
+function route(p,m,q){
+  if(p=='/api/state')return state();
+  if(p=='/api/log')return LOG.slice();
+  if(p=='/api/config')return m=='GET'?JSON.parse(JSON.stringify(C)):configSet(q);
+  if(p=='/api/power'){setPower(+q.on==1,'Web');if(C.tmr.on)manualAt=Date.now();return{ok:true}}
+  if(p=='/api/speed'){setSpeeds(+q.s||0,+q.e||0,'Web');if(C.tmr.on)manualAt=Date.now();return{ok:true}}
+  if(p=='/api/write')return regWrite(q);
+  if(p=='/api/addr'){const v=+q.v;if(!(v>=1&&v<=16))return{ok:false,err:'address must be 1..16'};
+    addLog(`Modbus address changed ${C.link.addr} -> ${v}`);wr(8,v);C.link.addr=v;return{ok:true}}
+  if(p=='/api/raw')return raw(q);
+  if(p=='/api/history')return history(q.range);
+  if(p=='/api/storage')return storage();
+  if(p=='/api/history/clear'){cleared=Date.now();return{ok:true}}
+  return{ok:false,err:'not found'}}
+const realFetch=window.fetch.bind(window);
+window.fetch=async(u,o)=>{const s=String(u);if(!s.startsWith('/api/'))return realFetch(u,o);const url=new URL(s,'http://mock');
+  await new Promise(r=>setTimeout(r,60));
+  let body;try{body=route(url.pathname,(o&&o.method)||'GET',Object.fromEntries(url.searchParams))}catch(e){body={ok:false,err:String(e)}}
+  return new Response(JSON.stringify(body),{status:200,headers:{'Content-Type':'application/json'}})};
+
+// ---- links that leave the page on the device: handled here instead
+document.addEventListener('click',e=>{
+  if(e.target.closest('a[href="/relays"]')){e.preventDefault();e.stopPropagation();toast('(mockup) opens the plain relay page /relays')}
+  const b=e.target.closest('button');
+  if(b&&/\/api\/csv/.test(b.getAttribute('onclick')||'')){e.stopPropagation();const h=history(EV.range);
+    const rows=['time,room_C,outdoor_C,exhaust_C,supply_est_C'].concat(h.temp.filter(x=>x[1]!=null).map(x=>
+      [new Date(x[0]*1000).toISOString().slice(0,16).replace('T',' ')].concat(x.slice(1).map(v=>(v/10).toFixed(1))).join(',')));
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([rows.join('\r\n')],{type:'text/csv'}));a.download=`hrv_${h.range}.csv`;a.click()}},true);
+
+// ---- simulated unit: poll every 2 s, small temperature noise, occasional defrost
+addLog('Started: http://192.168.1.200/  (Modbus addr 14, 4800 8N1)');addLog('Link up: addr 14, 4800 8N1');addLog('Time synced (NTP)');
+setInterval(()=>{lastPoll=Date.now();okc+=2;
+  R[12]=22+(Math.random()<.2?1:0);R[13]=(4+(Math.random()<.3?-1:0))&0xFFFF;R[14]=9+(Math.random()<.3?1:0);
+  if(!(R[18]&8)&&Math.random()<.01){R[18]|=8;setTimeout(()=>R[18]&=~8,20000)}evalRules();timerTick()},2000);
+})();
+// ===================== END MOCK BACKEND =====================
+</script>
+
+<script>
+const $=id=>document.getElementById(id);
+const SPEED_CODES=[0,2,3,5,8,9,10,11,12,13,14];
+const lvl=c=>SPEED_CODES.indexOf(c);
+const s16=v=>v>32767?v-65536:v;
+const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const FLOW_DEF=[0,35,70,105,140,175,210,245,280,315,350],FANW_DEF=[0,8,11,15,20,27,36,48,63,85,112];
 const META={
- 2:{n:'Bypass opening temperature X',u:'°C',min:5,max:30,def:19,w:1},
- 3:{n:'Bypass temperature band Y',u:'°C',min:2,max:15,def:3,w:1},
- 4:{n:'Defrost interval',u:'min',min:15,max:99,def:30,w:1},
- 5:{n:'Outdoor temp that triggers defrost',u:'°C',min:-9,max:5,def:-1,w:1},
- 6:{n:'Defrost duration',u:'min',min:2,max:20,def:10,w:1},
- 7:{n:'CO₂ setpoint',u:'ppm',min:392,max:1960,def:1000,w:1,co2:1},
+ 2:{n:'Bypass opening temperature X',u:'°C',min:5,max:30,def:19},
+ 3:{n:'Bypass temperature band Y',u:'°C',min:2,max:15,def:3},
+ 4:{n:'Defrost interval',u:'min',min:15,max:99,def:30},
+ 5:{n:'Outdoor temp that triggers defrost',u:'°C',min:-9,max:5,def:-1},
+ 6:{n:'Defrost duration',u:'min',min:2,max:20,def:10},
+ 7:{n:'CO₂ setpoint',u:'ppm',min:392,max:1960,def:1000,co2:1},
  8:{n:'Modbus address'},9:{n:'Unit on/off'},10:{n:'Supply fan speed'},11:{n:'Exhaust fan speed'},
  12:{n:'Room temperature'},13:{n:'Outdoor temperature'},14:{n:'Exhaust air temperature'},15:{n:'Defrost sensor temperature'},
  16:{n:'External on/off input'},17:{n:'CO₂ on/off signal'},18:{n:'Status bits'},19:{n:'Electric heater stage'},
  20:{n:'Error bits'},21:{n:'Model selection'},22:{n:'Defrost mode'}};
-const $=id=>document.getElementById(id);
-const lvl=c=>Math.max(0,SPEED_CODES.indexOf(c));
-const s16=v=>v>32767?v-65536:v;
-function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2200)}
-function log(t){const l=$('log');const d=new Date().toLocaleTimeString();l.textContent+=`[${d}] ${t}\n`;l.scrollTop=1e9}
-function write(reg,val){R[reg]=val;log(`FC06 write R${reg} = ${val}  → OK, read back ${val}`)}
+let S=null,CFG=null,R=[],RULES=[],TIMER=[],TAB='dash';
+
+function toast(t){const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(e._t);e._t=setTimeout(()=>e.style.display='none',2600)}
+async function call(path,params,method){
+  const u=path+(params?'?'+new URLSearchParams(params):'');
+  try{const r=await fetch(u,{method:method||'POST'});const t=await r.text();let j;
+    try{j=JSON.parse(t)}catch(e){j={ok:r.ok,err:t}}
+    if(!r.ok&&typeof j==='object'&&!Array.isArray(j))j.ok=false;return j}
+  catch(e){return{ok:false,err:'network error'}}}
+const get=(p,q)=>call(p,q,'GET');
+function done(j,okMsg){if(j.ok){if(okMsg)toast(okMsg);return true}toast('Failed: '+(j.err||'error'));return false}
+const temp=r=>(!S||R[r]==null)?null:s16(R[r])/S.div;
+const fT=v=>v==null||isNaN(v)?'--':(S&&S.div>1?v.toFixed(1):String(Math.round(v)));
+const unitOn=()=>R[9]===1;
+const hm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const toMin=s=>{const p=(s||'0:0').split(':');return(+p[0])*60+(+p[1])};
+function dur(s){if(s<0)return'—';if(s<90)return s+' s';if(s<5400)return Math.round(s/60)+' min';if(s<172800)return Math.round(s/3600)+' h';return Math.round(s/86400)+' days'}
+const dt=t=>new Date(t*1000).toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
 
 // ---------- tabs ----------
-function show(t){document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==t));
- document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t))}
+function show(t){if(!$(t))t='dash';TAB=t;history.replaceState(null,'','#'+t);document.querySelectorAll('.tab').forEach(s=>s.classList.toggle('on',s.id==t));
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t));
+ if(t=='settings')renderSettings();
+ if(t=='energy')loadEnergy();
+ if(t=='adv'){renderRegs();loadLog()}}
 $('nav').onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
 
+// ---------- polling ----------
+async function poll(){
+  const j=await get('/api/state');
+  if(j&&j.r){S=j;R=j.r;renderAll()}
+  else{$('linkDot').className='dot bad';$('linkTxt').textContent='controller not reachable'}
+  setTimeout(poll,2000)}
+function renderAll(){
+  const L=S.link;
+  $('linkDot').className='dot'+(L.ok?'':' bad');
+  $('linkTxt').textContent=L.ok?`Link OK · polled ${L.ago<=1?'just now':L.ago+' s ago'}`:`No link · ${L.err}`;
+  $('hdrSub').textContent=`HKL-EA8 · Modbus RTU addr ${L.addr} · ${L.baud} ${L.fmt}`;
+  $('hdrState').textContent=R[9]==null?'Unit —':`Unit ${unitOn()?'ON':'OFF'} · S${lvl(R[10])} / E${lvl(R[11])}`;
+  $('hdrTime').textContent=S.tv?new Date(S.t*1000).toLocaleString('en-GB',{weekday:'short',hour:'2-digit',minute:'2-digit'}):'time not synced';
+  renderDash();
+  // automation status
+  $('stored').textContent=S.des.valid?`${S.des.on?'ON':'OFF'} · S${S.des.s} / E${S.des.e}`:'not known yet';
+  $('lastRst').textContent=S.rst.last?dt(S.rst.last):'never'+(S.rst.pend>=0?` (check in ${S.rst.pend} s)`:'');
+  document.querySelectorAll('#rules tr[data-i]').forEach(tr=>tr.classList.toggle('changed',S.rule.on&&+tr.dataset.i===S.rule.act));
+  if(S.tv)$('clock').textContent='Controller time: '+new Date(S.t*1000).toLocaleString('en-GB');
+  else $('clock').textContent='Controller time: not synced';
+  nextEvent();
+  $('tmrLast').textContent=S.tmr.last||'none since start';
+  // advanced
+  $('cnt').textContent=`${L.okc} / ${L.errc}`;
+  $('lastErr').textContent=L.errAgo<0?'none':`${L.err}, ${dur(L.errAgo)} ago`;
+  $('rmode').textContent=(L.single?'single registers':'block read R2–R21 + R22 single')+(L.echo?', transceiver echo handled':'');
+  $('uptime').textContent=dur(S.up);
+  if(TAB=='adv')renderRegs();
+}
+
 // ---------- dashboard ----------
-function togglePower(){write(9,R[9]?0:1);renderDash();toast(R[9]?'Unit switched ON':'Unit switched OFF')}
+async function togglePower(){if(R[9]==null)return;const j=await call('/api/power',{on:unitOn()?0:1});done(j,unitOn()?'Switching OFF':'Switching ON')}
 function speedButtons(el,reg){
- let h=`<button class="stop ${R[reg]==0?'on':''}" onclick="setSpeed(${reg},0)">Stop</button>`;
- for(let i=1;i<=10;i++)h+=`<button class="${lvl(R[reg])==i?'on':''}" onclick="setSpeed(${reg},${i})">${i}</button>`;
- $(el).innerHTML=h}
-function setSpeed(reg,l){const c=SPEED_CODES[l];
- if($('linkFans').checked){write(10,c);write(11,c)}else write(reg,c);renderDash()}
-function preset(s,e){$('linkFans').checked=(s==e);write(10,SPEED_CODES[s]);write(11,SPEED_CODES[e]);renderDash();toast(`Speeds set: S${s} / E${e}`)}
+  let h=`<button class="stop ${R[reg]===0?'on':''}" onclick="setSpeed(${reg},0)">Stop</button>`;
+  for(let i=1;i<=10;i++)h+=`<button class="${lvl(R[reg])==i?'on':''}" onclick="setSpeed(${reg},${i})">${i}</button>`;
+  $(el).innerHTML=h}
+async function setSpeed(reg,l){let s=lvl(R[10]),e=lvl(R[11]);
+  if($('linkFans').checked){s=e=l}else if(reg==10)s=l;else e=l;
+  if(s<0||e<0){toast('Current speed unknown');return}
+  done(await call('/api/speed',{s,e}))}
+async function preset(s,e){$('linkFans').checked=(s==e);localStorage.linkFans=s==e?1:0;renderFans();done(await call('/api/speed',{s,e}),`Speeds set: S${s} / E${e}`)}
 function renderFans(){speedButtons('spSup',10);speedButtons('spExh',11);
- $('exhBlock').style.display=$('linkFans').checked?'none':'block';
- $('supCode').textContent=`level ${lvl(R[10])} (code ${R[10]})`+($('linkFans').checked?' — applies to both fans':'');
- $('exhCode').textContent=`level ${lvl(R[11])} (code ${R[11]})`}
-function flag(t,c){return `<span class="flag ${c||''}">${t}</span>`}
+  $('exhBlock').style.display=$('linkFans').checked?'none':'block';
+  $('supCode').textContent=R[10]==null?'':`level ${lvl(R[10])} (code ${R[10]})`+($('linkFans').checked?' — applies to both fans':'');
+  $('exhCode').textContent=R[11]==null?'':`level ${lvl(R[11])} (code ${R[11]})`}
+const flag=(t,c)=>`<span class="flag ${c||''}">${t}</span>`;
+const deg=v=>`${fT(v)}<span class="unit"> °C</span>`;
 function renderDash(){
- $('tRoom').innerHTML=s16(R[12])+'<span class="unit"> °C</span>';
- $('tOut').innerHTML=s16(R[13])+'<span class="unit"> °C</span>';
- $('tExh').innerHTML=s16(R[14])+'<span class="unit"> °C</span>';
- $('tDef').innerHTML=s16(R[15])+'<span class="unit"> °C</span>';
- $('pwr').classList.toggle('on',!!R[9]);$('pwrTxt').textContent=R[9]?'ON':'OFF';
- $('modeTxt').textContent='Mode: '+($('tempCtl')&&$('tempCtl').checked?'auto (temperature rules)':'manual');
- $('hdrState').textContent=`Unit ${R[9]?'ON':'OFF'} · S${lvl(R[10])} / E${lvl(R[11])}`;
- $('extIn').textContent=R[16]?'closed':'open';
- renderFans();
- const b=R[18];
- $('flags').innerHTML=(b&1?flag('FIRE ALARM','err'):flag('Fire alarm: no'))+
-   (b&2?flag('Bypass OPEN','on'):'')+(b&4?flag('Bypass closed'):'')+(b&8?flag('Defrosting','warn'):flag('Defrost: idle'));
- $('bpWin').textContent=`${R[2]} – ${R[2]+R[3]} °C (outdoor now ${s16(R[13])} °C)`;
- $('heater').textContent=R[19];$('dMode').textContent=R[22];$('co2sig').textContent=R[17]?'on':'off';
- const e=R[20],E=[[4,'Outdoor sensor'],[8,'Defrost sensor'],[16,'Room sensor'],[32,'EEPROM']];
- $('errs').innerHTML=e?E.filter(x=>e&x[0]).map(x=>flag(x[1],'err')).join(''):flag('No errors','on');
- const r=s16(R[12]),o=s16(R[13]),x=s16(R[14]);
- const ef=r!=o?Math.round(100*(r-x)/(r-o)):0;
- $('eff').innerHTML=ef+'<span class="unit"> %</span>';$('effBar').style.width=Math.max(0,Math.min(100,ef))+'%';
- $('stored').textContent=`${R[9]?'ON':'OFF'} · S${lvl(R[10])} / E${lvl(R[11])}`;
+  $('tRoom').innerHTML=deg(temp(12));$('tOut').innerHTML=deg(temp(13));$('tExh').innerHTML=deg(temp(14));$('tDef').innerHTML=deg(temp(15));
+  $('pwr').classList.toggle('on',unitOn());$('pwrTxt').textContent=R[9]==null?'--':unitOn()?'ON':'OFF';
+  $('modeTxt').textContent='Speed: '+(S.rule.on?'temperature rules'+(S.rule.act>=0?` (rule ${S.rule.act+1})`:''):'manual')+(S.tmr.on?' · timer on':'');
+  $('extIn').textContent=R[16]==null?'--':R[16]?'closed':'open';
+  renderFans();
+  const b=R[18];
+  $('flags').innerHTML=b==null?'--':(b&1?flag('FIRE ALARM','err'):flag('Fire alarm: no'))+
+    (b&2?flag('Bypass OPEN','on'):'')+(b&4?flag('Bypass closed'):'')+(b&8?flag('Defrosting','warn'):flag('Defrost: idle'));
+  $('bpWin').textContent=R[2]==null?'--':`${R[2]} – ${R[2]+R[3]} °C (outdoor now ${fT(temp(13))} °C)`;
+  $('heater').textContent=R[19]??'--';$('dMode').textContent=R[22]??'--';$('co2sig').textContent=R[17]==null?'--':R[17]?'on':'off';
+  const e=R[20],E=[[4,'Outdoor sensor'],[8,'Defrost sensor'],[16,'Room sensor'],[32,'EEPROM']];
+  $('errs').innerHTML=e==null?'--':e?E.filter(x=>e&x[0]).map(x=>flag(x[1],'err')).join('')+(e&~60?flag('Other bits: 0x'+e.toString(16),'err'):''):flag('No errors','on');
+  const r=temp(12),o=temp(13),x=temp(14);
+  if(r!=null&&o!=null&&x!=null&&Math.abs(r-o)>=2&&unitOn()){const ef=Math.round(100*(r-x)/(r-o));
+    $('eff').innerHTML=ef+'<span class="unit"> %</span>';$('effBar').style.width=Math.max(0,Math.min(100,ef))+'%'}
+  else{$('eff').innerHTML='--<span class="unit"> %</span>';$('effBar').style.width='0'}
+  const lv=S.live,kw=w=>w==null?'--':w>=1000?(w/1000).toFixed(2)+' kW':Math.round(w)+' W';
+  $('liveKept').textContent=lv.heating?kw(lv.kept):'0 W (not heating)';$('liveLost').textContent=lv.heating?kw(lv.lost):'—';
+  $('liveFan').textContent=kw(lv.fan);$('liveSup').textContent=lv.sup==null?'--':lv.sup.toFixed(1)+' °C';
 }
 
-// ---------- settings ----------
+// ---------- unit settings ----------
 const toDisp=(r,v)=>META[r].co2?Math.round(v*9.8):s16(v);
-const toRaw=(r,v)=>META[r].co2?Math.round(v/9.8):(v<0?v+65536:v);
+const toVal=(r,v)=>META[r].co2?Math.round(v/9.8):v;
 function renderSettings(){
- let h='<tr><th>Reg</th><th>Parameter</th><th>Current</th><th>New value</th><th>Range</th><th>Default</th></tr>';
- for(const r of [2,3,4,5,6,7]){const m=META[r],cur=toDisp(r,R[r]);
-  h+=`<tr id="row${r}"><td><span class="reg">R${r}</span></td><td>${m.n}</td><td><b>${cur}</b> ${m.u}</td>`+
-   `<td><input type="number" id="in${r}" value="${cur}" min="${m.min}" max="${m.max}" ${m.co2?'step="10"':''} oninput="markChg(${r})"> ${m.u}</td>`+
-   `<td class="mut">${m.min} … ${m.max}</td><td class="mut">${m.def}</td></tr>`}
- $('setTbl').innerHTML=h;$('setMsg').textContent='';bpPreview()}
-function markChg(r){$('row'+r).classList.toggle('changed',+$('in'+r).value!=toDisp(r,R[r]));bpPreview()}
-function applySettings(){let n=0,bad=[];
- for(const r of [2,3,4,5,6,7]){const m=META[r],v=+$('in'+r).value;
-  if(v==toDisp(r,R[r]))continue;
-  if(v<m.min||v>m.max){bad.push(m.n);continue}
-  write(r,toRaw(r,v));n++}
- renderSettings();renderDash();
- $('setMsg').textContent=bad.length?'Out of range, not written: '+bad.join(', '):(n?`${n} register(s) written and verified`:'Nothing changed')}
+  let h='<tr><th>Reg</th><th>Parameter</th><th>Current</th><th>New value</th><th>Range</th><th>Default</th></tr>';
+  for(const r of [2,3,4,5,6,7]){const m=META[r],cur=R[r]==null?null:toDisp(r,R[r]);
+    h+=`<tr id="row${r}"><td><span class="reg">R${r}</span></td><td>${m.n}</td><td><b>${cur??'--'}</b> ${m.u}</td>`+
+     `<td><input type="number" id="in${r}" value="${cur??''}" min="${m.min}" max="${m.max}" ${m.co2?'step="10"':''} oninput="markChg(${r})"> ${m.u}</td>`+
+     `<td class="mut">${m.min} … ${m.max}</td><td class="mut">${m.def}</td></tr>`}
+  $('setTbl').innerHTML=h;$('setMsg').textContent='';
+  $('curAddr').textContent=R[8]??'--';if(!$('newAddr').value)$('newAddr').value=R[8]??'';
+  $('model').textContent=R[21]==null?'--':R[21]+(R[21]==4?' (3.5KDC)':'');
+  bpPreview()}
+function markChg(r){const cur=R[r]==null?null:toDisp(r,R[r]);$('row'+r).classList.toggle('changed',$('in'+r).value!==''&&+$('in'+r).value!==cur);bpPreview()}
+async function applySettings(){const q={},bad=[];
+  for(const r of [2,3,4,5,6,7]){const m=META[r],s=$('in'+r).value;if(s==='')continue;const v=+s;
+    if(R[r]!=null&&v===toDisp(r,R[r]))continue;
+    if(v<m.min||v>m.max){bad.push(m.n);continue}
+    q['r'+r]=toVal(r,v)}
+  if(bad.length){$('setMsg').textContent='Out of range: '+bad.join(', ');return}
+  if(!Object.keys(q).length){$('setMsg').textContent='Nothing changed';return}
+  $('setMsg').textContent='Writing…';
+  const j=await call('/api/write',q);
+  const failed=(j.res||[]).filter(x=>!x.ok);
+  await refreshState();renderSettings();
+  $('setMsg').textContent=j.ok?`${(j.res||[]).length} register(s) written and verified`:
+    'Failed: '+(failed.length?failed.map(x=>`R${x.r} (${x.err})`).join(', '):j.err)}
 function restoreDefaults(){for(const r of [2,3,4,5,6,7]){$('in'+r).value=META[r].def;markChg(r)}}
-function bpPreview(){const X=+($('in2')?.value??R[2]),Y=+($('in3')?.value??R[3]);
- $('bpPreview').innerHTML=`<div class="big" style="font-size:24px">${X} – ${X+Y} °C</div>`+
-  `<div class="mut">Outdoor now ${s16(R[13])} °C → bypass would be <b>${(s16(R[13])>=X&&s16(R[13])<X+Y)?'OPEN':'closed'}</b></div>`}
-function confirmDanger(t){if(confirm(t))toast('(mockup) write sent')}
+function bpPreview(){const X=+$('in2').value,Y=+$('in3').value,o=temp(13);
+  $('bpPreview').innerHTML=`<div class="big" style="font-size:24px">${X} – ${X+Y} °C</div>`+
+   (o==null?'':`<div class="mut">Outdoor now ${fT(o)} °C → bypass would be <b>${(o>=X&&o<X+Y)?'OPEN':'closed'}</b></div>`)}
+async function changeAddr(){const v=+$('newAddr').value;
+  if(!(v>=1&&v<=16)){toast('Address must be 1..16');return}
+  if(!confirm(`Change the unit's Modbus address to ${v}? The controller will switch to the new address.`))return;
+  if(done(await call('/api/addr',{v}),'Address changed')){await loadConfig();renderSettings()}}
+async function refreshState(){const j=await get('/api/state');if(j&&j.r){S=j;R=j.r;renderAll()}}
 
-// ---------- automation ----------
-let rules=[
- {c:'Outdoor < −15 °C',s:2,e:3,on:1},
- {c:'Outdoor < −5 °C',s:3,e:4,on:1},
- {c:'Room > 25 °C and outdoor < room − 3 °C',s:8,e:8,on:1},
- {c:'Room > 24 °C and outdoor > room',s:2,e:2,on:1},
- {c:'Otherwise (−5 … 30 °C)',s:5,e:5,on:1}];
-function renderAuto(){
- let h='<tr><th>#</th><th>Condition</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
- const opts=v=>[...Array(11).keys()].map(i=>`<option ${i==v?'selected':''}>${i}</option>`).join('');
- rules.forEach((r,i)=>{h+=`<tr ${i==4&&$('tempCtl').checked?'class="changed"':''}><td>${i+1}</td><td><input type="text" value="${r.c}" style="width:100%"></td>`+
-  `<td><select>${opts(r.s)}</select></td><td><select>${opts(r.e)}</select></td>`+
-  `<td><input type="checkbox" ${r.on?'checked':''}></td><td><button class="btn" onclick="rules.splice(${i},1);renderAuto()">✕</button></td></tr>`});
- $('rules').innerHTML=h;renderDash()}
-function addRule(){rules.push({c:'Outdoor > 28 °C',s:3,e:3,on:1});renderAuto()}
+// ---------- automation: restore ----------
+async function saveRst(){done(await call('/api/config',{section:'rst',on:$('rstOn').checked?1:0,delay:$('rstDelay').value}),'Auto-restart saved')}
 
-// ---------- weekly timer ----------
-const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-const P=(on,off,sp,en=1)=>({en,on,off,sp});
-let timer=[0,1,2,3,4].map(()=>[P('06:30','09:00',5),P('17:00','23:00',5)])
-  .concat([[P('08:00','23:30',5),P('00:00','00:00',3,0)],[P('08:00','23:30',5),P('00:00','00:00',3,0)]]);
+// ---------- automation: rules ----------
+function renderRules(){
+  const opts=v=>[...Array(11).keys()].map(i=>`<option value="${i}" ${i==v?'selected':''}>${i==0?'stop':i}</option>`).join('');
+  const num=(i,k,v)=>`<input type="number" step="0.5" style="width:58px" value="${v??''}" placeholder="any" onchange="RULES[${i}][${k}]=this.value===''?null:+this.value">`;
+  let h='<tr><th>#</th><th>Outdoor °C from – to</th><th>Room °C from – to</th><th>Outdoor vs room</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
+  RULES.forEach((r,i)=>{
+    h+=`<tr data-i="${i}"><td>${i+1}</td><td style="white-space:nowrap">${num(i,1,r[1])} – ${num(i,2,r[2])}</td><td style="white-space:nowrap">${num(i,3,r[3])} – ${num(i,4,r[4])}</td>`+
+     `<td><select onchange="RULES[${i}][5]=+this.value;renderRules()"><option value="0" ${r[5]==0?'selected':''}>any</option>`+
+     `<option value="1" ${r[5]==1?'selected':''}>outdoor cooler by ≥</option><option value="2" ${r[5]==2?'selected':''}>outdoor warmer</option></select>`+
+     (r[5]==1?` <input type="number" step="0.5" style="width:56px" value="${r[6]??3}" onchange="RULES[${i}][6]=+this.value"> °C`:'')+`</td>`+
+     `<td><select onchange="RULES[${i}][7]=+this.value">${opts(r[7])}</select></td><td><select onchange="RULES[${i}][8]=+this.value">${opts(r[8])}</select></td>`+
+     `<td><input type="checkbox" ${r[0]?'checked':''} onchange="RULES[${i}][0]=this.checked?1:0"></td>`+
+     `<td style="white-space:nowrap"><button class="btn" title="Move up" onclick="moveRule(${i})" ${i?'':'disabled'}>↑</button> <button class="btn" title="Delete" onclick="RULES.splice(${i},1);renderRules()">✕</button></td></tr>`});
+  $('rules').innerHTML=h}
+function addRule(){if(RULES.length>=8){toast('Up to 8 rules');return}RULES.push([1,null,null,null,null,0,3,5,5]);renderRules()}
+function moveRule(i){const t=RULES[i];RULES[i]=RULES[i-1];RULES[i-1]=t;renderRules()}
+async function saveRules(){const q={section:'rules',on:$('rulesOn').checked?1:0,hyst:$('hyst').value,hold:$('hold').value,fb:$('fb').value,n:RULES.length};
+  RULES.forEach((r,i)=>q['r'+i]=r.map(v=>v==null?'':v).join(','));
+  done(await call('/api/config',q),'Rules saved')}
+
+// ---------- automation: weekly timer ----------
 function renderTimer(){
- const dis=$('timerOn').checked?'':'disabled';
- const opts=v=>[...Array(10).keys()].map(i=>`<option ${i+1==v?'selected':''}>${i+1}</option>`).join('');
- let h='<tr><th>Day</th><th>Period 1</th><th>ON</th><th>OFF</th><th>Speed</th><th style="border-left:2px solid var(--line)">Period 2</th><th>ON</th><th>OFF</th><th>Speed</th></tr>';
- const today=(new Date().getDay()+6)%7;
- timer.forEach((d,i)=>{h+=`<tr ${i==today?'style="background:var(--acc2)"':''}><td><b>${DAYS[i]}</b>${i==today?' <span class="mut">today</span>':''}</td>`;
-  d.forEach((p,k)=>{const f=(x)=>`onchange="tSet(${i},${k},'${x}',this)"`;
-   h+=`<td ${k?'style="border-left:2px solid var(--line)"':''}><input type="checkbox" ${p.en?'checked':''} ${dis} ${f('en')}></td>`+
-    `<td><input type="time" value="${p.on}" ${dis||(!p.en?'disabled':'')} ${f('on')}></td>`+
-    `<td><input type="time" value="${p.off}" ${dis||(!p.en?'disabled':'')} ${f('off')}></td>`+
-    `<td><select ${dis||(!p.en?'disabled':'')} ${f('sp')}>${opts(p.sp)}</select></td>`});
-  h+='</tr>'});
- $('timerTbl').innerHTML=h;nextEvent()}
-function tSet(d,k,key,el){timer[d][k][key]=key=='en'?(el.checked?1:0):key=='sp'?+el.value:el.value;
- const p=timer[d][k];if(p.en&&p.on>=p.off&&key!='en')toast('OFF time must be later than ON time');renderTimer()}
-function copyDay(src,dst){dst.forEach(d=>timer[d]=JSON.parse(JSON.stringify(timer[src])));renderTimer();toast(`${DAYS[src]} copied`)}
+  const dis=$('timerOn').checked?'':'disabled';
+  let h='<tr><th>Day</th><th>Period 1</th><th>ON</th><th>OFF</th><th style="border-left:2px solid var(--line)">Period 2</th><th>ON</th><th>OFF</th></tr>';
+  const today=S&&S.tv?(new Date(S.t*1000).getDay()+6)%7:-1;
+  TIMER.forEach((d,i)=>{h+=`<tr ${i==today?'style="background:var(--acc2)"':''}><td><b>${DAYS[i]}</b>${i==today?' <span class="mut">today</span>':''}</td>`;
+    d.forEach((p,k)=>{const f=x=>`onchange="tSet(${i},${k},'${x}',this)"`,off=dis||(!p[0]?'disabled':'');
+      h+=`<td ${k?'style="border-left:2px solid var(--line)"':''}><input type="checkbox" ${p[0]?'checked':''} ${dis} ${f('en')}></td>`+
+       `<td><input type="time" value="${hm(p[1])}" ${off} ${f('on')}></td><td><input type="time" value="${hm(p[2])}" ${off} ${f('off')}></td>`});
+    h+='</tr>'});
+  $('timerTbl').innerHTML=h;nextEvent()}
+function tSet(d,k,key,el){const p=TIMER[d][k];
+  if(key=='en')p[0]=el.checked?1:0;else if(key=='on')p[1]=toMin(el.value);else p[2]=toMin(el.value);
+  if(p[0]&&p[2]<=p[1]&&key!='en')toast('OFF time must be later than ON time');renderTimer()}
+function copyDay(src,dst){dst.forEach(d=>TIMER[d]=JSON.parse(JSON.stringify(TIMER[src])));renderTimer();toast(`${DAYS[src]} copied — press Save timer`)}
 function nextEvent(){
- if(!$('timerOn').checked){$('nextEv').textContent='timer disabled';return}
- const now=new Date(),today=(now.getDay()+6)%7,hm=now.toTimeString().slice(0,5);
- for(let o=0;o<8;o++){const d=(today+o)%7;const ev=[];
-  timer[d].forEach(p=>{if(p.en){ev.push([p.on,'ON at speed '+p.sp]);ev.push([p.off,'OFF'])}});
-  ev.sort((a,b)=>a[0]<b[0]?-1:1);
-  for(const e of ev)if(o>0||e[0]>hm){$('nextEv').textContent=`${o==0?'today':o==1?'tomorrow':DAYS[d]} ${e[0]} — ${e[1]}`;return}}
- $('nextEv').textContent='no periods set'}
-setInterval(()=>{$('clock').textContent='Controller time: '+new Date().toLocaleString()+' (NTP ok)'},1000);
+  if(!TIMER.length)return;
+  if(!$('timerOn').checked){$('nextEv').textContent='timer disabled';return}
+  if(!S||!S.tv){$('nextEv').textContent='controller time not synced';return}
+  const now=new Date(S.t*1000),today=(now.getDay()+6)%7,cur=now.getHours()*60+now.getMinutes();
+  for(let o=0;o<8;o++){const d=(today+o)%7,ev=[];
+    TIMER[d].forEach(p=>{if(p[0]){ev.push([p[1],'ON']);ev.push([p[2],'OFF'])}});
+    ev.sort((a,b)=>a[0]-b[0]);
+    for(const e of ev)if(o>0||e[0]>cur){$('nextEv').textContent=`${o==0?'today':o==1?'tomorrow':DAYS[d]} ${hm(e[0])} — ${e[1]}`;return}}
+  $('nextEv').textContent='no periods set'}
+async function saveTimer(){
+  for(let d=0;d<7;d++)for(const p of TIMER[d])if(p[0]&&p[2]<=p[1]){toast(`${DAYS[d]}: OFF must be later than ON`);return}
+  const q={section:'tmr',on:$('timerOn').checked?1:0,rev:$('rev').value};
+  TIMER.forEach((d,i)=>q['d'+i]=d.map(p=>p.join(',')).join(','));
+  done(await call('/api/config',q),'Timer saved')}
 
-// ---------- energy (simulated history) ----------
-const EV={FLOW:[0,35,70,105,140,175,210,245,280,315,350],FANW:[0,8,11,15,20,27,36,48,63,85,112],range:'24h',cache:{}};
+// ---------- config load ----------
+async function loadConfig(){
+  const c=await get('/api/config');if(!c||!c.link)return;CFG=c;
+  $('lAddr').value=c.link.addr;$('lBaud').value=c.link.baud;$('lFmt').value=c.link.fmt;$('lPoll').value=c.link.poll;
+  $('lTo').value=c.link.to;$('lDiv').value=c.link.div;$('lWfc').value=c.link.wfc;
+  $('rstOn').checked=!!c.rst.on;$('rstDelay').value=c.rst.delay;
+  $('rulesOn').checked=!!c.rules.on;$('hyst').value=c.rules.hyst;$('hold').value=c.rules.hold;$('fb').value=c.rules.fb;
+  RULES=c.rules.list.map(r=>r.slice());renderRules();
+  $('timerOn').checked=!!c.tmr.on;$('rev').value=c.tmr.rev;TIMER=c.tmr.d.map(d=>d.map(p=>p.slice()));renderTimer();
+  $('evHeatP').value=c.en.hp;$('evElP').value=c.en.ep;renderFlowTbl(c.en.flow,c.en.fanw)}
+async function saveLink(){
+  if(!confirm('Apply new link settings? Wrong values stop communication with the unit.'))return;
+  if(done(await call('/api/config',{section:'link',addr:$('lAddr').value,baud:$('lBaud').value,fmt:$('lFmt').value,
+    poll:$('lPoll').value,to:$('lTo').value,div:$('lDiv').value,wfc:$('lWfc').value}),'Link settings saved'))loadConfig()}
+
+// ---------- advanced ----------
+function renderRegs(){
+  let h='<tr><th>Reg</th><th>Name</th><th>Raw (hex)</th><th>Value</th><th></th></tr>';
+  for(let r=2;r<=22;r++){const m=META[r],v=R[r];
+    h+=`<tr><td><span class="reg">R${r}</span></td><td>${m.n}</td>`+
+     `<td style="font-family:monospace">${v==null?'--':'0x'+v.toString(16).toUpperCase().padStart(4,'0')}</td>`+
+     `<td>${v==null?'--':m.co2?toDisp(r,v)+' ppm':s16(v)}</td>`+
+     `<td><button class="btn" title="Copy this register and its value into Raw register access" onclick="useReg(${r},${v??0})">Load to raw access</button></td></tr>`}
+  $('regTbl').innerHTML=h}
+for(const id of ['rawReg','rawCnt','rawVal']){const v=localStorage[id];if(v!=null)$(id).value=v;$(id).addEventListener('change',()=>localStorage[id]=$(id).value)}
+if(localStorage.rawOut)$('rawOut').textContent=localStorage.rawOut;
+if(localStorage.linkFans==='0')$('linkFans').checked=false;
+function useReg(r,v){$('rawReg').value=r;$('rawVal').value=v;$('rawCnt').value=1;
+  for(const id of ['rawReg','rawCnt','rawVal'])localStorage[id]=$(id).value;
+  $('rawReg').closest('.card').scrollIntoView({behavior:'smooth',block:'center'});$('rawVal').focus();$('rawVal').select();
+  toast(`R${r} loaded into Raw register access`)}
+async function raw(op){
+  for(const id of ['rawReg','rawCnt','rawVal'])localStorage[id]=$(id).value;
+  const q={op,reg:$('rawReg').value};
+  if(op[0]=='r')q.cnt=$('rawCnt').value;
+  else{if(!confirm(`Write ${$('rawVal').value} to register ${q.reg} with ${op=='w6'?'FC06':'FC16'}?`))return;
+    if(op=='w6')q.val=$('rawVal').value;else q.vals=$('rawVal').value}
+  const j=await call('/api/raw',q);
+  $('rawOut').textContent=(j.ok?(op[0]=='r'?'Values: '+j.vals.map((v,i)=>`R${+q.reg+i}=${v} (${s16(v)})`).join(', '):'Write OK'):'Error: '+j.err)+
+    `\nTX: ${j.tx||''}\nRX: ${j.rx||'-'}`;localStorage.rawOut=$('rawOut').textContent}
+async function loadLog(){const j=await get('/api/log');if(Array.isArray(j)){const l=$('log');l.textContent=j.join('\n');l.scrollTop=1e9}}
+
+// ---------- energy ----------
+const EV={range:'24h',data:null};
 const C1='var(--series-1)',C2='var(--series-2)',C3='var(--series-3)',C4='var(--series-4)';
-function evRand(seed){return()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
-const evRng=evRand(7),evNoise=[...Array(400)].map(()=>(evRng()-.5)*9);
-function evSample(t){
-  const d=new Date(t),doy=(t-new Date(d.getFullYear(),0,1))/864e5,h=d.getHours()+d.getMinutes()/60;
-  const f=Math.max(0,(Date.now()-t)/864e5),i=Math.min(398,Math.floor(f)),noise=evNoise[i]+(evNoise[i+1]-evNoise[i])*(f-i);
-  const out=8.5-12.5*Math.cos(2*Math.PI*(doy-20)/365)+3.5*Math.sin(2*Math.PI*(h-9)/24)+noise;
-  const room=out<18?22+0.4*Math.sin(2*Math.PI*(h-15)/24):Math.min(27,22+(out-18)*0.45);
-  const sp=(h<7||h>=23)?2:5,q=EV.FLOW[sp];
-  const bypass=out>=19&&out<22,heating=out<room-3&&!bypass;
-  const eff=bypass?0.05:0.74-0.006*sp,exh=room-eff*(room-out),sup=out+(room-exh);
-  const kept=heating?0.335*q*(room-exh):0,lost=heating?0.335*q*(room-out)-kept:0;
-  return{t,out,room,exh,sup,kept,lost,fan:EV.FANW[sp]};
-}
-function evStart(r){const n=new Date();
-  if(r=='24h')return Date.now()-864e5;
-  if(r=='7d')return new Date(n.getFullYear(),n.getMonth(),n.getDate()-6).getTime();
-  if(r=='30d')return new Date(n.getFullYear(),n.getMonth(),n.getDate()-29).getTime();
-  return new Date(n.getFullYear(),n.getMonth()-11,1).getTime()}
-function evKey(t,unit){const d=new Date(t);
-  return unit=='h'?new Date(d.getFullYear(),d.getMonth(),d.getDate(),d.getHours()).getTime():
-         unit=='d'?new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime():new Date(d.getFullYear(),d.getMonth(),1).getTime()}
-function evGroup(samples,unit,stepH){const m=new Map();
-  for(const s of samples){const k=evKey(s.t,unit);let g=m.get(k);
-    if(!g){g={t:k,n:0,out:0,room:0,exh:0,sup:0,kept:0,lost:0,fan:0};m.set(k,g)}
-    g.n++;for(const f of['out','room','exh','sup'])g[f]+=s[f];
-    g.kept+=s.kept*stepH/1000;g.lost+=s.lost*stepH/1000;g.fan+=s.fan*stepH/1000}
-  return[...m.values()].map(g=>{for(const f of['out','room','exh','sup'])g[f]/=g.n;
-    g.eff=g.kept>0.01?100*g.kept/(g.kept+g.lost):null;return g})}
-function evData(r){if(EV.cache[r])return EV.cache[r];
-  const step=r=='24h'?6e5:36e5,stepH=step/36e5,s=[];
-  for(let t=evStart(r);t<=Date.now();t+=step)s.push(evSample(t));
-  const temp=r=='24h'||r=='7d'?s:evGroup(s,'d',stepH);
-  const bars=evGroup(s,r=='24h'?'h':r=='12m'?'m':'d',stepH);
-  const tot=bars.reduce((a,b)=>({kept:a.kept+b.kept,lost:a.lost+b.lost,fan:a.fan+b.fan}),{kept:0,lost:0,fan:0});
-  return EV.cache[r]={temp,bars,tot}}
-
 const evF=(t,o)=>new Date(t).toLocaleString('en-GB',o);
 const EV_FMT={
   '24h':{tx:t=>evF(t,{hour:'2-digit',minute:'2-digit'}),tt:t=>evF(t,{weekday:'short',hour:'2-digit',minute:'2-digit'}),
@@ -606,7 +857,6 @@ const EV_FMT={
          bx:t=>evF(t,{day:'numeric',month:'short'}),bt:t=>evF(t,{weekday:'short',day:'numeric',month:'short'})},
   '12m':{tx:t=>evF(t,{month:'short'}),tt:t=>evF(t,{day:'numeric',month:'short',year:'numeric'}),
          bx:t=>evF(t,{month:'short'}),bt:t=>evF(t,{month:'long',year:'numeric'})}};
-
 function evTicks(lo,hi,n){if(hi-lo<1e-9){lo-=1;hi+=1}
   const raw=(hi-lo)/n,p=10**Math.floor(Math.log10(raw)),st=[1,2,2.5,5,10].map(m=>m*p).find(x=>x>=raw);
   const r=[];for(let v=Math.floor(lo/st)*st;v<=Math.ceil(hi/st)*st+st/2;v+=st)r.push(+v.toFixed(6));return r}
@@ -615,30 +865,35 @@ function evTipRow(color,name,val,box){const r=evEl('div','r'),k=evEl('i');k.styl
   if(box){k.style.width='10px';k.style.height='10px';k.style.borderRadius='2px'}
   r.append(k,evEl('span',null,name),evEl('b',null,val));return r}
 function evPlaceTip(tip,svg,xVb,W){const r=svg.getBoundingClientRect(),px=xVb/W*r.width;
-  tip.style.display='block';const w=tip.offsetWidth;
-  tip.style.left=(px+14+w>r.width?px-14-w:px+14)+'px';tip.style.top='8px'}
+  tip.style.display='block';const w=tip.offsetWidth;tip.style.left=(px+14+w>r.width?px-14-w:px+14)+'px';tip.style.top='8px'}
 function evLegend(id,items){$(id).replaceChildren(...items.map(it=>{const s=evEl('span'),k=evEl('i',it.box?'box':'');
-  k.style.background=it.color;if(it.dash)k.style.background=`repeating-linear-gradient(90deg,${it.color} 0 4px,transparent 4px 7px)`;
+  k.style.background=it.dash?`repeating-linear-gradient(90deg,${it.color} 0 4px,transparent 4px 7px)`:it.color;
   s.append(k,document.createTextNode(it.name));return s}))}
+function evEmpty(el,msg){el.replaceChildren(evEl('div','mut',msg));el.firstChild.style.padding='30px';el.firstChild.style.textAlign='center'}
 
 function evLine(el,o){
   const W=960,H=o.h||260,ml=40,mr=o.endLabels?96:16,mt=12,mb=26,iw=W-ml-mr,ih=H-mt-mb,n=o.x.length;
-  let all=o.series.flatMap(s=>s.v).filter(v=>v!=null);if(o.ref)all.push(o.ref.v);
-  let tk=o.fixedY?evTicks(o.fixedY[0],o.fixedY[1],5):evTicks(Math.min(...all),Math.max(...all),5);
+  const all=o.series.flatMap(s=>s.v).filter(v=>v!=null);
+  if(!all.length){evEmpty(el,'No data for this period yet');return}
+  if(o.ref)all.push(o.ref.v);
+  const tk=o.fixedY?evTicks(o.fixedY[0],o.fixedY[1],5):evTicks(Math.min(...all),Math.max(...all),5);
   const lo=tk[0],hi=tk[tk.length-1],X=i=>ml+(n<2?iw/2:i*iw/(n-1)),Y=v=>mt+ih-(v-lo)/(hi-lo)*ih;
   let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria}">`;
   for(const v of tk)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${ml-8}" y="${Y(v)+4}" text-anchor="end">${v}${o.unit}</text>`;
   const nt=n<=13?n:7;
   for(let k=0;k<nt;k++){const i=Math.round(k*(n-1)/Math.max(1,nt-1));
-    s+=`<text x="${X(i)}" y="${H-6}" text-anchor="${k==0?'start':k==nt-1?'end':'middle'}">${o.fmtX(o.x[i])}</text>`}
+    s+=`<text x="${X(i)}" y="${H-6}" text-anchor="${nt>1&&k==0?'start':nt>1&&k==nt-1?'end':'middle'}">${o.fmtX(o.x[i])}</text>`}
   if(o.ref)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(o.ref.v)}" y2="${Y(o.ref.v)}" stroke="var(--text-secondary)" stroke-dasharray="5 4"/>`+
     `<text x="${ml+iw-4}" y="${Y(o.ref.v)-6}" text-anchor="end">${o.ref.label}</text>`;
   const ends=[];
-  for(const se of o.series){let d='',pen=false;
-    se.v.forEach((v,i)=>{if(v==null){pen=false;return}d+=(pen?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1);pen=true});
+  for(const se of o.series){let d='',pen=false,single=[];
+    se.v.forEach((v,i)=>{if(v==null){pen=false;return}
+      const prevNull=i==0||se.v[i-1]==null,nextNull=i==n-1||se.v[i+1]==null;if(prevNull&&nextNull)single.push(i);
+      d+=(pen?'L':'M')+X(i).toFixed(1)+','+Y(v).toFixed(1);pen=true});
     s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" ${se.dash?'stroke-dasharray="6 4"':''}/>`;
-    const li=se.v.map((v,i)=>v==null?-1:i).filter(i=>i>=0).pop();
-    if(o.endLabels&&li!=null)ends.push({y:Y(se.v[li]),name:se.name,color:se.color})}
+    for(const i of single)s+=`<circle cx="${X(i)}" cy="${Y(se.v[i])}" r="3" fill="${se.color}"/>`;
+    let li=-1;se.v.forEach((v,i)=>{if(v!=null)li=i});
+    if(o.endLabels&&li>=0)ends.push({y:Y(se.v[li]),name:se.name,color:se.color})}
   ends.sort((a,b)=>a.y-b.y);for(let i=1;i<ends.length;i++)if(ends[i].y-ends[i-1].y<15)ends[i].y=ends[i-1].y+15;
   for(const e of ends)s+=`<line x1="${ml+iw+6}" x2="${ml+iw+16}" y1="${e.y}" y2="${e.y}" stroke="${e.color}" stroke-width="2"/><text x="${ml+iw+20}" y="${e.y+4}">${e.name}</text>`;
   s+=`<line class="xh" x1="0" x2="0" y1="${mt}" y2="${mt+ih}" stroke="var(--text-secondary)" stroke-width="1" visibility="hidden"/>`;
@@ -660,13 +915,15 @@ function evLine(el,o){
 
 function evBars(el,o){
   const W=960,H=270,ml=48,mr=16,mt=26,mb=26,iw=W-ml-mr,ih=H-mt-mb,n=o.x.length,ns=o.series.length;
-  const tk=evTicks(0,Math.max(...o.series.flatMap(s=>s.v)),5),hi=tk[tk.length-1],Y=v=>mt+ih-v/hi*ih;
+  const mx=Math.max(0,...o.series.flatMap(s=>s.v).filter(v=>v!=null));
+  if(mx<=0){evEmpty(el,'No energy data for this period yet');return}
+  const tk=evTicks(0,mx,5),hi=tk[tk.length-1],Y=v=>mt+ih-v/hi*ih;
   const gw=iw/n,bw=Math.max(3,Math.min(26,(gw*0.72-2*(ns-1))/ns));
   let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria}">`;
   for(const v of tk)s+=`<line x1="${ml}" x2="${ml+iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${ml-8}" y="${Y(v)+4}" text-anchor="end">${v}</text>`;
   const every=Math.ceil(n/12);
   for(let i=0;i<n;i++){const x0=ml+i*gw+(gw-(ns*bw+2*(ns-1)))/2;
-    o.series.forEach((se,j)=>{const v=se.v[i];if(v<=0)return;const x=x0+j*(bw+2),y=Y(v),y0=Y(0),r=Math.min(4,bw/2,y0-y);
+    o.series.forEach((se,j)=>{const v=se.v[i];if(!(v>0))return;const x=x0+j*(bw+2),y=Y(v),y0=Y(0),r=Math.min(4,bw/2,y0-y);
       s+=`<path d="M${x},${y0}V${y+r}Q${x},${y} ${x+r},${y}H${x+bw-r}Q${x+bw},${y} ${x+bw},${y+r}V${y0}Z" fill="${se.color}"/>`});
     if(i%every==0)s+=`<text x="${ml+i*gw+gw/2}" y="${H-6}" text-anchor="middle">${o.fmtX(o.x[i])}</text>`;
     s+=`<rect class="hit" data-i="${i}" x="${ml+i*gw}" y="${mt}" width="${gw}" height="${ih}" fill="transparent"/>`}
@@ -674,65 +931,71 @@ function evBars(el,o){
   s+=`<text x="${ml-8}" y="12" text-anchor="end">kWh</text></svg>`;
   el.innerHTML=s;const tip=evEl('div','ev-tip');el.append(tip);const svg=el.querySelector('svg');
   svg.querySelectorAll('.hit').forEach(h=>{h.onpointerenter=()=>{const i=+h.dataset.i;h.setAttribute('fill','rgba(0,0,0,.04)');
-    tip.replaceChildren(evEl('div','h',o.fmtTip(o.x[i])),...o.series.map(se=>evTipRow(se.color,se.name,se.v[i].toFixed(2)+' kWh',true)),...(o.extra?o.extra(i):[]));
+    tip.replaceChildren(evEl('div','h',o.fmtTip(o.x[i])),...o.series.map(se=>evTipRow(se.color,se.name,se.v[i]==null?'no data':se.v[i].toFixed(2)+' kWh',true)),...(o.extra?o.extra(i):[]));
     evPlaceTip(tip,svg,ml+i*gw+gw,W)};
     h.onpointerleave=()=>{h.setAttribute('fill','transparent');tip.style.display='none'}});
 }
-
 function evTile(label,val,unit,sub,color){const t=evEl('div','ev-tile'),l=evEl('div','lbl');
   if(color){const k=evEl('span','ev-key');k.style.background=color;l.append(k)}
   l.append(document.createTextNode(label));const v=evEl('div','v',val+' ');v.append(evEl('small',null,unit));
   t.append(l,v,evEl('div','s',sub));return t}
 
+async function loadEnergy(){
+  const d=await get('/api/history',{range:EV.range});
+  if(!d.temp){$('evMsg').style.display='block';$('evMsg').textContent='History not available: '+(d.err||'error')+
+    '. Data is recorded only while the controller knows the time (NTP) and reads the unit.';EV.data=null;renderEnergy();loadStorage();return}
+  $('evMsg').style.display='none';EV.data=d;renderEnergy();loadStorage()}
+async function loadStorage(){const s=await get('/api/storage');if(!s.ok){$('evStore').textContent='';return}
+  const kb=b=>b<1024*1024?Math.round(b/1024)+' KB':(b/1048576).toFixed(2)+' MB';
+  const hist=s.min.bytes+s.hour.bytes+s.day.bytes;
+  $('evStore').textContent=`History ${kb(hist)} · flash ${kb(s.used)} of ${kb(s.total)} used`}
+async function clearHistory(){
+  if(!confirm('Delete all temperature and energy history on the controller? This cannot be undone.'))return;
+  if(done(await call('/api/history/clear'),'History cleared'))loadEnergy()}
+
 function renderEnergy(){
-  const r=EV.range,d=evData(r),F=EV_FMT[r],tot=d.tot,hp=+$('evHeatP').value,ep=+$('evElP').value;
-  const without=tot.kept+tot.lost,pct=without?Math.round(100*tot.kept/without):0;
+  const d=EV.data,r=EV.range,F=EV_FMT[r],hp=+$('evHeatP').value,ep=+$('evElP').value;
   const rangeTxt={'24h':'last 24 h','7d':'last 7 days','30d':'last 30 days','12m':'last 12 months'}[r];
+  if(!d){$('evTiles').replaceChildren();['evTemp','evEn','evEff'].forEach(id=>evEmpty($(id),'No data'));return}
+  const T=d.temp.map(x=>({t:x[0]*1000,room:x[1]==null?null:x[1]/10,out:x[2]==null?null:x[2]/10,exh:x[3]==null?null:x[3]/10,sup:x[4]==null?null:x[4]/10}));
+  const B=d.bars.map(x=>({t:x[0]*1000,kept:x[1]==null?null:x[1]/1000,lost:x[2]==null?null:x[2]/1000,fan:x[3]==null?null:x[3]/1000,out:x[4]==null?null:x[4]/10}));
+  B.forEach(b=>b.eff=b.kept>0.005?100*b.kept/(b.kept+b.lost):null);
+  const tot=B.reduce((a,b)=>({kept:a.kept+(b.kept||0),lost:a.lost+(b.lost||0),fan:a.fan+(b.fan||0)}),{kept:0,lost:0,fan:0});
+  const without=tot.kept+tot.lost,pct=without?Math.round(100*tot.kept/without):0;
+  const f1=v=>v<10?v.toFixed(2):v.toFixed(1);
   $('evTiles').replaceChildren(
-    evTile('Heat kept at home',tot.kept.toFixed(1),'kWh',`${pct} % of ${without.toFixed(1)} kWh you would lose without the HRV`,C1),
-    evTile('Heat lost',tot.lost.toFixed(1),'kWh','leaves with the exhaust air',C2),
-    evTile('Fan electricity',tot.fan.toFixed(1),'kWh',`≈ ${(tot.fan*ep).toFixed(0)} ₴`),
+    evTile('Heat kept at home',f1(tot.kept),'kWh',without?`${pct} % of ${f1(without)} kWh you would lose without the HRV`:'no heating in this period',C1),
+    evTile('Heat lost',f1(tot.lost),'kWh','leaves with the exhaust air',C2),
+    evTile('Fan electricity',f1(tot.fan),'kWh',`≈ ${(tot.fan*ep).toFixed(0)} ₴`),
     evTile('Net saving',(tot.kept*hp-tot.fan*ep).toFixed(0),'₴',rangeTxt),
-    evTile('Return on fan power',tot.fan?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
-  const T=d.temp;
-  $('evTempSub').textContent=r=='24h'?'10-minute samples':r=='7d'?'hourly averages':'daily averages';
+    evTile('Return on fan power',tot.fan>0.001?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
+  $('evTempSub').textContent=r=='24h'?'10-minute averages':r=='7d'?'hourly averages':'daily averages';
   const ts=[{name:'Room',color:C1,v:T.map(x=>x.room)},{name:'Outdoor',color:C2,v:T.map(x=>x.out)},
             {name:'Exhaust air',color:C3,v:T.map(x=>x.exh)},{name:'Supply (est.)',color:C4,v:T.map(x=>x.sup),dash:1}];
   evLegend('evTempLeg',ts);
   evLine($('evTemp'),{x:T.map(x=>x.t),series:ts,unit:'°',fmtX:F.tx,fmtTip:F.tt,endLabels:1,aria:'Temperatures, '+rangeTxt});
-  const B=d.bars,en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
+  const en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
   evLegend('evEnLeg',en.map(e=>({...e,box:1})));
   evBars($('evEn'),{x:B.map(b=>b.t),series:en,fmtX:F.bx,fmtTip:F.bt,aria:'Heat kept and lost, '+rangeTxt,
-    extra:i=>[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg outdoor',B[i].out.toFixed(1)+' °C')]});
+    extra:i=>B[i].fan==null?[]:[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg outdoor',B[i].out==null?'—':B[i].out.toFixed(1)+' °C')]});
   evLine($('evEff'),{x:B.map(b=>b.t),series:[{name:'Efficiency',color:C1,v:B.map(b=>b.eff)}],unit:'%',fixedY:[0,100],h:200,
     ref:{v:75,label:'Spec 75 %'},fmtX:F.bx,fmtTip:F.bt,aria:'Heat recovery efficiency, '+rangeTxt});
   let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg outdoor</th></tr>';
-  for(const b of B)h+=`<tr><td>${F.bt(b.t)}</td><td>${b.kept.toFixed(2)}</td><td>${b.lost.toFixed(2)}</td><td>${b.fan.toFixed(2)}</td><td>${b.eff==null?'—':b.eff.toFixed(0)+' %'}</td><td>${b.out.toFixed(1)} °C</td></tr>`;
-  $('evTbl').innerHTML=h+'</table>';
-}
+  const n2=v=>v==null?'—':v.toFixed(2);
+  for(const b of B)h+=`<tr><td>${F.bt(b.t)}</td><td>${n2(b.kept)}</td><td>${n2(b.lost)}</td><td>${n2(b.fan)}</td><td>${b.eff==null?'—':b.eff.toFixed(0)+' %'}</td><td>${b.out==null?'—':b.out.toFixed(1)+' °C'}</td></tr>`;
+  $('evTbl').innerHTML=h+'</table>'}
 function evToggleTable(){const t=$('evTbl'),on=t.style.display=='none';t.style.display=on?'block':'none';$('evTblBtn').textContent=on?'Hide table':'Show table'}
 $('evRange').onclick=e=>{const r=e.target.dataset.r;if(!r)return;EV.range=r;
-  [...$('evRange').children].forEach(b=>b.classList.toggle('on',b.dataset.r==r));renderEnergy()};
-(function(){let h='<tr><th>Speed</th><th>Code</th><th>Airflow m³/h</th><th>Fans W</th></tr>';
-  for(let i=1;i<=10;i++)h+=`<tr><td>${i}</td><td class="mut">${SPEED_CODES[i]}</td><td><input type="number" value="${EV.FLOW[i]}"></td><td><input type="number" value="${EV.FANW[i]}"></td></tr>`;
-  $('evFlowTbl').innerHTML=h})();
+  [...$('evRange').children].forEach(b=>b.classList.toggle('on',b.dataset.r==r));loadEnergy()};
+function renderFlowTbl(flow,fanw){let h='<tr><th>Speed</th><th>Code</th><th>Airflow m³/h</th><th>Fans W</th></tr>';
+  for(let i=1;i<=10;i++)h+=`<tr><td>${i}</td><td class="mut">${SPEED_CODES[i]}</td><td><input type="number" id="fl${i}" value="${flow[i]}"></td><td><input type="number" id="fw${i}" value="${fanw[i]}"></td></tr>`;
+  $('evFlowTbl').innerHTML=h}
+function flowDefaults(){renderFlowTbl(FLOW_DEF,FANW_DEF);toast('Defaults filled — press Save')}
+async function saveEnergy(){const fl=[0],fw=[0];for(let i=1;i<=10;i++){fl.push(+$('fl'+i).value||0);fw.push(+$('fw'+i).value||0)}
+  done(await call('/api/config',{section:'en',hp:$('evHeatP').value,ep:$('evElP').value,flow:fl.join(','),fanw:fw.join(',')}),'Energy settings saved')}
+setInterval(()=>{if(TAB=='energy'&&!document.hidden)loadEnergy()},60000);
+setInterval(()=>{if(TAB=='adv'&&!document.hidden)loadLog()},5000);
 
-// ---------- advanced ----------
-function renderRegs(){
- let h='<tr><th>Reg</th><th>Name</th><th>Raw (hex)</th><th>Value</th><th></th></tr>';
- for(let r=0;r<=22;r++){const m=META[r];
-  const v=R[r]??0;
-  h+=`<tr><td><span class="reg">R${r}</span></td><td>${m?m.n:'<span class="mut">not used</span>'}</td>`+
-   `<td style="font-family:monospace">0x${v.toString(16).toUpperCase().padStart(4,'0')}</td><td>${m&&m.co2?toDisp(r,v)+' ppm':s16(v)}</td>`+
-   `<td><button class="btn" onclick="$('rawReg').value=${r};$('rawVal').value=${v}">Edit</button></td></tr>`}
- $('regTbl').innerHTML=h;log('FC03 read R0..R22 (23 registers) OK')}
-function rawRead(){const r=+$('rawReg').value;$('rawOut').textContent=`R${r} = ${R[r]??'exception 2 (illegal address)'}`;log(`FC03 read R${r}`)}
-
-// ---------- simulated polling ----------
-setInterval(()=>{R[12]=22+(Math.random()<.2?1:0);R[13]=4+(Math.random()<.3?-1:0);R[14]=9+(Math.random()<.3?1:0);
- if(Math.random()<.05)R[18]^=8;renderDash();$('linkTxt').textContent='Link OK · polled just now'},2000);
-
-renderDash();renderSettings();renderAuto();renderTimer();renderEnergy();renderRegs();
-log('Link up: addr 14, 4800 8N1');
+loadConfig().then(()=>{poll();if(location.hash)show(location.hash.slice(1))});
 </script>
 </body></html>
