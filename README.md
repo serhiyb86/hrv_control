@@ -1,7 +1,7 @@
 # Hardware
 Board Model: HKL-EA8
 In Arduino IDE: NodeMCU-32S
-![alt text](image.png)
+![alt text](docs/image.png)
 
 ## Example code
 https://github.com/hankerila-MA/HKL-EA8
