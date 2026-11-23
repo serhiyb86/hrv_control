@@ -171,7 +171,7 @@ MinAcc macc = {};
 MinRec minBuf[16]; int minBufN = 0;
 uint32_t lastHourDone = 0, lastDayDone = 0; bool histInit = false;
 uint32_t lastEnergyMs = 0;
-Live live = {0, 0, 0, NAN, false};
+Live live = {0, 0, 0, false};
 bool timeWasValid = false;
 
 const int LOG_N = 60;
