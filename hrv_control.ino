@@ -60,6 +60,7 @@ const char *NTP3 = "162.159.200.1";    // time.cloudflare.com by IP: works witho
 
 // ============================================================ registers
 enum {
+  R_RELOAD = 0, R_HEATCON = 1,   // automatic reloading, heater connection (not in the manual's map; read every 30 s)
   R_BYP_X = 2, R_BYP_Y = 3, R_DEF_INT = 4, R_DEF_OUT = 5, R_DEF_DUR = 6, R_CO2 = 7,
   R_ADDR = 8, R_POWER = 9, R_SUP = 10, R_EXH = 11, R_RA = 12, R_OA = 13, R_SA = 14,
   R_FR = 15, R_EXTIN = 16, R_CO2SIG = 17, R_STATUS = 18, R_HEATER = 19, R_ERR = 20,
@@ -923,6 +924,8 @@ void pollUnit() {
       }
     }
   }
+  // R0/R1 sit outside the R2..R21 block; read them on their own with the settings registers
+  if (ok && slowDue) for (int r = R_RELOAD; r < REG_FIRST; r++) readSingle(r);
   onPoll(ok);
 }
 

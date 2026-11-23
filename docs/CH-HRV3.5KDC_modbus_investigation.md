@@ -64,6 +64,7 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 **Open questions:**
 - **Temperature encoding** for R12–R15: resolved, °C = raw − 40. R5 is still open (raw − 47 would make it the default −1).
 - **R19 = 96 and R21 = 0** do not match the register map.
+- **R0 / R1** (automatic reloading, heater connection): check that FC03 reg 0 count 2 answers, and what the values mean.
 
 
 ---
@@ -72,8 +73,8 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 
 | Reg | Meaning | Range / encoding | Default |
 |---|---|---|---|
-| 00 | Not used | | |
-| 01 | Not used | | |
+| 00 | Automatic reloading (manual: not used; read by the controller every 30 s, not tested yet) | | |
+| 01 | Heater connection (manual: not used; read by the controller every 30 s, not tested yet) | | |
 | 02 | Bypass opening temperature X | 5–30 °C | 19 |
 | 03 | Bypass temperature band Y | 2–15 °C | 3 |
 | 04 | Defrost interval | 15–99 min | 30 |

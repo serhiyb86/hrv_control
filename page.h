@@ -425,6 +425,7 @@ const s16=v=>v>32767?v-65536:v;
 const DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const FLOW_DEF=[0,35,70,105,140,175,210,245,280,315,350],FANW_DEF=[0,8,11,15,20,27,36,48,63,85,112];
 const META={
+ 0:{n:'Automatic reloading'},1:{n:'Heater connection'},
  2:{n:'Bypass opening temperature X',u:'°C',min:5,max:30,def:19},
  3:{n:'Bypass temperature band Y',u:'°C',min:2,max:15,def:3},
  4:{n:'Defrost interval',u:'min',min:15,max:99,def:30},
@@ -642,7 +643,7 @@ async function saveLink(){
 // ---------- advanced ----------
 function renderRegs(){
   let h='<tr><th>Reg</th><th>Name</th><th>Raw (hex)</th><th>Value</th><th></th></tr>';
-  for(let r=2;r<=22;r++){const m=META[r],v=R[r];
+  for(let r=0;r<=22;r++){const m=META[r],v=R[r];
     h+=`<tr><td><span class="reg">R${r}</span></td><td>${m.n}</td>`+
      `<td style="font-family:monospace">${v==null?'--':'0x'+v.toString(16).toUpperCase().padStart(4,'0')}</td>`+
      `<td>${v==null?'--':m.co2?toDisp(r,v)+' ppm':s16(v)}</td>`+

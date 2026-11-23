@@ -39,7 +39,7 @@ Flashing and verifying on the real unit is done by the user. Do not write Modbus
 
 **Modbus link facts** (they explain non-obvious code):
 - Slave 14, 4800 8N1. Reads use FC03; writes use FC06 by default, FC16 can be selected (`cfg.writeFc`).
-- The unit answers **at most 20 registers per FC03 request**. Asking for more gets silence, not an exception. So `pollUnit` reads R2–R21 as one block and R22 separately every 30 s. If the block read fails but a single read of R12 works, it switches to `singleMode` (per-register reads, with a 60 s skip for registers that keep failing).
+- The unit answers **at most 20 registers per FC03 request**. Asking for more gets silence, not an exception. So `pollUnit` reads R2–R21 as one block, and R0, R1 and R22 one by one every 30 s. If the block read fails but a single read of R12 works, it switches to `singleMode` (per-register reads, with a 60 s skip for registers that keep failing).
 - `mbTransact` handles transceivers that echo the request (`echoSeen`). An FC06 reply is byte-identical to the request, hence the `sameAsReq` logic.
 - Fan speed registers (R10/R11) hold **codes**, not levels: `SPEED_CODE[level]` with levels 0–10; use `levelOf()` for the reverse mapping.
 - **Temperatures R12–R15 are °C = raw − 40** (`TEMP_OFS`, applied in `tempOf()`): R12 RA return air (from the rooms), R13 OA outside air, R14 SA supply air (into the rooms), R15 FR fresh/exhaust air (out to outdoors). Other temperature-like registers (R2, R3, R5) are not decoded this way. `Config.unused1` is the old `tempDiv` byte, kept so the NVS blob layout stays valid.
