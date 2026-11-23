@@ -48,6 +48,10 @@ IPAddress dns2    (8, 8, 8, 8);
 #define SCL_PIN 5
 PCF8574 relays(0x24, SDA_PIN, SCL_PIN);
 bool relayState[8] = {false};
+// Relays on this board are active-low (checked on the unit: LOW = relay on, LED lit).
+// The PCF8574 powers up with all pins HIGH, so the relays stay off through boot.
+#define RELAY_ON  LOW
+#define RELAY_OFF HIGH
 
 #define RS485_RX 14
 #define RS485_TX 13
@@ -1353,7 +1357,7 @@ void handleRelay() {
     return;
   }
   relayState[ch] = state == 1;
-  relays.digitalWrite(ch, relayState[ch] ? HIGH : LOW);
+  relays.digitalWrite(ch, relayState[ch] ? RELAY_ON : RELAY_OFF);
   server.sendHeader("Location", "/relays");
   server.send(303, "text/plain", "Relay updated");
 }
@@ -1368,8 +1372,9 @@ void setup() {
   if (RS485_DE >= 0) { pinMode(RS485_DE, OUTPUT); digitalWrite(RS485_DE, LOW); }
   uartApply();
 
+  // pinMode must come before begin(): begin() then writes the start level (all off) in one I2C transaction
+  for (int ch = 0; ch < 8; ch++) relays.pinMode(ch, OUTPUT, RELAY_OFF);
   if (!relays.begin()) Serial.println("WARNING: PCF8574 relay expander did not initialize.");
-  for (int ch = 0; ch < 8; ch++) { relays.pinMode(ch, OUTPUT); relays.digitalWrite(ch, LOW); }
 
   fsOk = LittleFS.begin(true);
   if (fsOk) {
