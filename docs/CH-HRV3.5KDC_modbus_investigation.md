@@ -50,10 +50,10 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 | R8 | 14 | Modbus address |
 | R9 | 1 | unit ON |
 | R10 / R11 | 8 / 8 | fan speed code 8 = 4th speed |
-| R12 | **56** | room temperature: raw value is not °C |
-| R13 | **52** | outdoor temperature |
-| R14 | **57** | exhaust air temperature |
-| R15 | **48** | defrost sensor temperature |
+| R12 | **56** | RA return air: 56 − 40 = 16 °C |
+| R13 | **52** | OA outside air: 12 °C |
+| R14 | **57** | SA supply air: 17 °C |
+| R15 | **48** | FR fresh/exhaust air: 8 °C |
 | R16 / R17 | 0 / 0 | external on/off, CO₂ signal |
 | R18 | 4 | B2 = bypass off |
 | R19 | **96** | heater stage: unexpected value |
@@ -62,7 +62,7 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 | R22 | 0 | defrost mode |
 
 **Open questions:**
-- **Temperature encoding** for R5 and R12–R15. Candidates are raw − 47 (makes R5 the default −1), raw − 40, or °F. Compare the raw values with the wall controller display at the same moment.
+- **Temperature encoding** for R12–R15: resolved, °C = raw − 40. R5 is still open (raw − 47 would make it the default −1).
 - **R19 = 96 and R21 = 0** do not match the register map.
 
 
@@ -84,10 +84,10 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 | 09 | Unit on/off | 0 = OFF, 1 = ON | |
 | 10 | Supply fan speed | see fan-speed codes below | |
 | 11 | Exhaust fan speed | see fan-speed codes below | |
-| **12** | **Room temperature** | current value (read only) | |
-| 13 | Outdoor temperature | current value | |
-| 14 | Exhaust air temperature | current value | |
-| 15 | Defrost sensor temperature | current value | |
+| **12** | **RA — return air** (extracted from the building), °C = raw − 40 | current value (read only) | |
+| 13 | OA — outside air (outdoor air entering the unit), °C = raw − 40 | current value | |
+| 14 | SA — supply air (supplied to the building), °C = raw − 40 | current value | |
+| 15 | FR — fresh/exhaust air (discharged outdoors), °C = raw − 40 | current value | |
 | 16 | External on/off input | status | |
 | 17 | CO₂ on/off signal | status | |
 | 18 | Status bits | B0 fire alarm, B1 bypass on, B2 bypass off, B3 defrosting | |

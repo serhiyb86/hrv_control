@@ -42,7 +42,7 @@ Flashing and verifying on the real unit is done by the user. Do not write Modbus
 - The unit answers **at most 20 registers per FC03 request**. Asking for more gets silence, not an exception. So `pollUnit` reads R2–R21 as one block and R22 separately every 30 s. If the block read fails but a single read of R12 works, it switches to `singleMode` (per-register reads, with a 60 s skip for registers that keep failing).
 - `mbTransact` handles transceivers that echo the request (`echoSeen`). An FC06 reply is byte-identical to the request, hence the `sameAsReq` logic.
 - Fan speed registers (R10/R11) hold **codes**, not levels: `SPEED_CODE[level]` with levels 0–10; use `levelOf()` for the reverse mapping.
-- **Temperature encoding is unresolved**: raw R12 = 56 in a room, for example. Candidates are raw−47, raw−40 or °F (see the open questions in the investigation doc). `tempOf()` currently just divides by `cfg.tempDiv` (1 or 10), so rules, energy maths and history built on top of temperatures are only as correct as this decoding.
+- **Temperatures R12–R15 are °C = raw − 40** (`TEMP_OFS`, applied in `tempOf()`): R12 RA return air (from the rooms), R13 OA outside air, R14 SA supply air (into the rooms), R15 FR fresh/exhaust air (out to outdoors). Other temperature-like registers (R2, R3, R5) are not decoded this way. `Config.unused1` is the old `tempDiv` byte, kept so the NVS blob layout stays valid.
 
 **State model**:
 - `regs[]`/`regOk[]` — last polled register values. After 3 failed polls in a row every `regOk` is cleared, so check `regOk` before using a value.
@@ -54,7 +54,7 @@ Flashing and verifying on the real unit is done by the user. Do not write Modbus
 **Persistence**:
 - `Config cfg` and `des` are stored as raw struct blobs in NVS (`Preferences`, namespace `"hrv"`, keys `"cfg"`/`"des"`). On load the blob size must equal `sizeof(Config)` and `magic` must equal `CFG_MAGIC`, otherwise defaults are used. **Any change to the `Config`/`Rule`/`Period` layout silently resets all user settings.** Bump `CFG_MAGIC` deliberately, or add migration code.
 - History lives in LittleFS as packed, fixed-size records sorted by time (`MinRec`/`HourRec`/`DayRec`): `/m/YYYYMMDD.bin` (minutes, 7 days), `/h/YYYYMM.bin` (hours, 24 months), `/d/YYYY.bin` (days, 10 years). Readers binary-search on the leading `uint32_t t`. Changing a record struct breaks existing files. Temperatures are stored ×10 as `int16`, with `NOVAL` meaning no value. History is only recorded once NTP time is valid (`timeValid()`).
-- Energy (`energySample`): heat kept / lost is estimated from `cfg.flow[level]` (m³/h) and temperature differences (0.335 Wh/m³·K), and fan power from `cfg.fanW[level]`.
+- Energy (`energySample`), supply side: kept = 0.335 × supply flow × (SA − OA), lost = 0.335 × supply flow × (RA − SA), flows from `cfg.flow[level]` (m³/h); fan power from `cfg.fanW[level]`. History record fields map as room = RA, out = OA, exh = FR, sup = SA.
 
 **Web API**: routes are registered in `setup()`. JSON is built by hand with `String` concatenation (`jsonEsc`, `jNum` — NaN becomes `null`). POST endpoints read form args via `server.arg()`. `/api/config` POST takes a `section` arg (`link`, `rst`, `rules`, `tmr`, `en`). `/relays` + `/relay` is a separate plain-HTML page for the 8 board relays (not used by the HRV logic yet).
 

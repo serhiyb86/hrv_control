@@ -61,10 +61,13 @@ const char *NTP3 = "162.159.200.1";    // time.cloudflare.com by IP: works witho
 // ============================================================ registers
 enum {
   R_BYP_X = 2, R_BYP_Y = 3, R_DEF_INT = 4, R_DEF_OUT = 5, R_DEF_DUR = 6, R_CO2 = 7,
-  R_ADDR = 8, R_POWER = 9, R_SUP = 10, R_EXH = 11, R_ROOM = 12, R_OUT = 13, R_EXHT = 14,
-  R_DEFT = 15, R_EXTIN = 16, R_CO2SIG = 17, R_STATUS = 18, R_HEATER = 19, R_ERR = 20,
+  R_ADDR = 8, R_POWER = 9, R_SUP = 10, R_EXH = 11, R_RA = 12, R_OA = 13, R_SA = 14,
+  R_FR = 15, R_EXTIN = 16, R_CO2SIG = 17, R_STATUS = 18, R_HEATER = 19, R_ERR = 20,
   R_MODEL = 21, R_DEFMODE = 22
 };
+// R12..R15 temperatures, raw value = °C + 40:
+//   RA return air (from the rooms), OA outside air, SA supply air (into the rooms), FR fresh/exhaust air (out to outdoors)
+const int TEMP_OFS = 40;
 const int REG_FIRST = 2, REG_LAST = 22, NREG = 23;
 const int REG_BLOCK_LAST = 21;   // unit answers at most 20 registers per FC03 request (count 21 times out)
 const uint16_t SPEED_CODE[11] = {0, 2, 3, 5, 8, 9, 10, 11, 12, 13, 14};  // index = speed level
@@ -89,7 +92,7 @@ struct Period { uint8_t en; uint16_t on, off; uint8_t sp; };  // minutes of the 
 
 struct Config {
   uint32_t magic;
-  uint8_t addr; uint32_t baud; uint8_t fmt; uint16_t pollSec, timeoutMs; uint8_t tempDiv, writeFc;
+  uint8_t addr; uint32_t baud; uint8_t fmt; uint16_t pollSec, timeoutMs; uint8_t unused1, writeFc;  // unused1 was tempDiv, kept so saved settings stay valid
   uint8_t autoRestart; uint16_t restoreDelay;
   uint8_t rulesOn; float hyst; uint16_t holdMin; uint8_t fallback; uint8_t nRules; Rule rules[MAX_RULES];
   uint8_t timerOn; uint16_t revertMin; Period tmr[7][2];
@@ -106,27 +109,29 @@ struct __attribute__((packed)) MinRec  { uint32_t t; int16_t room, out, exh, sup
 struct __attribute__((packed)) HourRec { uint32_t t; int16_t room, out, exh, sup; uint16_t kept, lost, fan, n; };              // Wh, Wh, 0.1 Wh, minutes
 struct __attribute__((packed)) DayRec  { uint32_t t; int16_t room, out, exh, sup; uint32_t kept, lost, fan; uint16_t n; };      // Wh, Wh, 0.1 Wh, minutes
 
-struct Sample { uint32_t t; float room, out, exh, sup, w, kept, lost, fan; };  // w = minutes, energy in Wh
+struct Sample { uint32_t t; float room, out, exh, sup, w, kept, lost, fan; };  // room = RA, out = OA, exh = FR, sup = SA; w = minutes, energy in Wh
 
 struct Agg {
-  double room = 0, out = 0, exh = 0, sup = 0, w = 0, supW = 0, kept = 0, lost = 0, fan = 0;
+  double room = 0, out = 0, exh = 0, sup = 0, w = 0, exhW = 0, supW = 0, kept = 0, lost = 0, fan = 0;
   void add(const Sample &s) {
     if (s.w <= 0) return;
-    room += s.room * s.w; out += s.out * s.w; exh += s.exh * s.w;
+    room += s.room * s.w; out += s.out * s.w;
     if (!isnan(s.sup)) { sup += s.sup * s.w; supW += s.w; }
+    if (!isnan(s.exh)) { exh += s.exh * s.w; exhW += s.w; }
     w += s.w; kept += s.kept; lost += s.lost; fan += s.fan;
   }
   Sample get(uint32_t t) const {
     Sample s = {t, NAN, NAN, NAN, NAN, 0, (float)kept, (float)lost, (float)fan};
-    if (w > 0) { s.room = room / w; s.out = out / w; s.exh = exh / w; s.w = w; }
+    if (w > 0) { s.room = room / w; s.out = out / w; s.w = w; }
     if (supW > 0) s.sup = sup / supW;
+    if (exhW > 0) s.exh = exh / exhW;
     return s;
   }
 };
 
-struct MinAcc { uint32_t t; double room, out, exh, sup, kept, lost, fan; uint16_t n, supN; uint8_t flags, spd; };
+struct MinAcc { uint32_t t; double room, out, exh, sup, kept, lost, fan; uint16_t n, exhN; uint8_t flags, spd; };
 
-struct Live { float kept, lost, fan, sup; bool heating; };
+struct Live { float kept, lost, fan; bool heating; };
 
 typedef std::function<void(const Sample &)> SampleCb;
 typedef std::function<void(const uint8_t *)> RecCb;
@@ -243,7 +248,7 @@ void localTm(uint32_t t, struct tm &tm) { time_t x = t; localtime_r(&x, &tm); }
 void setDefaults() {
   memset(&cfg, 0, sizeof cfg);
   cfg.magic = CFG_MAGIC;
-  cfg.addr = 14; cfg.baud = 4800; cfg.fmt = 0; cfg.pollSec = 2; cfg.timeoutMs = 300; cfg.tempDiv = 1; cfg.writeFc = 6;
+  cfg.addr = 14; cfg.baud = 4800; cfg.fmt = 0; cfg.pollSec = 2; cfg.timeoutMs = 300; cfg.unused1 = 0; cfg.writeFc = 6;
   cfg.autoRestart = 1; cfg.restoreDelay = 10;
   cfg.rulesOn = 0; cfg.hyst = 1; cfg.holdMin = 5; cfg.fallback = 0;
   const Rule def[] = {
@@ -389,7 +394,7 @@ MbErr mbWrite(uint16_t reg, uint16_t val) {
 }
 
 // ============================================================ unit state
-float tempOf(int r) { return regOk[r] ? (int16_t)regs[r] / (float)cfg.tempDiv : NAN; }
+float tempOf(int r) { return regOk[r] ? (float)((int16_t)regs[r] - TEMP_OFS) : NAN; }
 bool unitOn() { return regOk[R_POWER] && regs[R_POWER] == 1; }
 int supLvl() { return regOk[R_SUP] ? levelOf(regs[R_SUP]) : -1; }
 int exhLvl() { return regOk[R_EXH] ? levelOf(regs[R_EXH]) : -1; }
@@ -481,7 +486,7 @@ bool ruleMatch(const Rule &r, float out, float room, float h) {
 
 void evalRules() {
   if (!unitOn()) { activeRule = RULE_UNSET; return; }
-  float out = tempOf(R_OUT), room = tempOf(R_ROOM);
+  float out = tempOf(R_OA), room = tempOf(R_RA);
   if (isnan(out) || isnan(room) || (regOk[R_ERR] && (regs[R_ERR] & (ERR_OUT | ERR_ROOM)))) return;
   int cand = -1;
   for (int i = 0; i < cfg.nRules; i++)
@@ -778,8 +783,8 @@ void finishMinute() {
   r.t = macc.t;
   r.room = toI16(macc.room / macc.n);
   r.out = toI16(macc.out / macc.n);
-  r.exh = toI16(macc.exh / macc.n);
-  r.sup = macc.supN ? toI16(macc.sup / macc.supN) : NOVAL;
+  r.exh = macc.exhN ? toI16(macc.exh / macc.exhN) : NOVAL;
+  r.sup = toI16(macc.sup / macc.n);
   r.kept = (uint16_t)min(65535L, lround(macc.kept * 10));
   r.lost = (uint16_t)min(65535L, lround(macc.lost * 10));
   r.fan = (uint16_t)min(65535L, lround(macc.fan * 100));
@@ -813,27 +818,27 @@ void energySample() {
   lastEnergyMs = ms;
   dt = min(dt, cfg.pollSec * 3.0f);
 
-  float room = tempOf(R_ROOM), out = tempOf(R_OUT), exh = tempOf(R_EXHT);
+  float ra = tempOf(R_RA), oa = tempOf(R_OA), sa = tempOf(R_SA), fr = tempOf(R_FR);
   bool on = unitOn();
   int ls = on ? max(0, supLvl()) : 0, le = on ? max(0, exhLvl()) : 0;
-  float qs = cfg.flow[ls], qe = cfg.flow[le];
+  float qs = cfg.flow[ls];
   uint16_t st = regOk[R_STATUS] ? regs[R_STATUS] : 0;
   bool defrost = st & ST_DEFROST, bypass = st & ST_BYPASS_ON;
-  bool sensorsOk = !isnan(room) && !isnan(out) && !isnan(exh) &&
+  bool sensorsOk = !isnan(ra) && !isnan(oa) && !isnan(sa) &&
                    !(regOk[R_ERR] && (regs[R_ERR] & (ERR_OUT | ERR_ROOM)));
 
-  live.heating = on && sensorsOk && !defrost && !bypass && out < room && qe > 0;
-  live.kept = live.heating ? max(0.0f, 0.335f * qe * (room - exh)) : 0;
-  live.lost = live.heating ? max(0.0f, 0.335f * qs * (room - out) - live.kept) : 0;
+  // supply side: the outside air is warmed from OA to SA by the exchanger (kept); heating has to cover SA -> RA (lost)
+  live.heating = on && sensorsOk && !defrost && !bypass && oa < ra && qs > 0;
+  live.kept = live.heating ? max(0.0f, 0.335f * qs * (sa - oa)) : 0;
+  live.lost = live.heating ? max(0.0f, 0.335f * qs * (ra - sa)) : 0;
   live.fan = on ? (cfg.fanW[ls] + cfg.fanW[le]) / 2.0f : 0;
-  live.sup = (!on || !sensorsOk) ? NAN : bypass ? out : out + (qs > 0 ? qe / qs : 1) * (room - exh);
 
   if (!timeValid() || !sensorsOk) return;
   uint32_t now = nowT(), key = now - now % 60;
   if (macc.n && macc.t != key) finishMinute();
   macc.t = key;
-  macc.room += room; macc.out += out; macc.exh += exh; macc.n++;
-  if (!isnan(live.sup)) { macc.sup += live.sup; macc.supN++; }
+  macc.room += ra; macc.out += oa; macc.sup += sa; macc.n++;
+  if (!isnan(fr)) { macc.exh += fr; macc.exhN++; }
   macc.kept += live.kept * dt / 3600; macc.lost += live.lost * dt / 3600; macc.fan += live.fan * dt / 3600;
   macc.flags = (on ? 1 : 0) | (defrost ? 2 : 0) | (bypass ? 4 : 0) | (live.heating ? 8 : 0);
   macc.spd = (ls << 4) | le;
@@ -898,7 +903,7 @@ void pollUnit() {
     } else {
       // If a single read of the room temperature works, the link is fine and only block reads fail
       String blockErr = mbLastErr;
-      if (mbRead(3, R_ROOM, 1, buf) == MB_OK) {
+      if (mbRead(3, R_RA, 1, buf) == MB_OK) {
         singleMode = true;
         slowDue = true;
         addLog("Block read R%d-R%d failed (%s), switching to single-register reads", REG_FIRST, REG_BLOCK_LAST, blockErr.c_str());
@@ -907,11 +912,11 @@ void pollUnit() {
   }
   if (singleMode) {
     // R12 is the link probe: if it does not answer, the unit is not reachable
-    if (mbRead(3, R_ROOM, 1, buf) == MB_OK) {
-      regs[R_ROOM] = buf[0]; regOk[R_ROOM] = true; ok = true;
+    if (mbRead(3, R_RA, 1, buf) == MB_OK) {
+      regs[R_RA] = buf[0]; regOk[R_RA] = true; ok = true;
       // live registers (R9..R20) every poll, settings (R2..R8, R21, R22) every 30 s
       for (int r = REG_FIRST; r <= REG_LAST; r++) {
-        if (r == R_ROOM) continue;
+        if (r == R_RA) continue;
         bool slow = r <= R_ADDR || r >= R_MODEL;
         if (slow && !slowDue) continue;
         readSingle(r);
@@ -935,7 +940,6 @@ void handleState() {
   j += "{\"t\":"; j += timeValid() ? nowT() : 0;
   j += ",\"tv\":"; j += timeValid() ? "true" : "false";
   j += ",\"up\":"; j += millis() / 1000;
-  j += ",\"div\":"; j += cfg.tempDiv;
   j += ",\"link\":{\"ok\":"; j += linkOk ? "true" : "false";
   j += ",\"ago\":"; j += lastOkMs ? (long)((millis() - lastOkMs) / 1000) : -1L;
   j += ",\"okc\":"; j += mbOkCnt; j += ",\"errc\":"; j += mbFailCnt;
@@ -948,7 +952,6 @@ void handleState() {
   j += "],\"live\":{\"kept\":"; jNum(j, live.kept, 0);
   j += ",\"lost\":"; jNum(j, live.lost, 0);
   j += ",\"fan\":"; jNum(j, live.fan, 0);
-  j += ",\"sup\":"; jNum(j, live.sup, 1);
   j += ",\"heating\":"; j += live.heating ? "true" : "false";
   j += "},\"des\":{\"valid\":"; j += des.valid; j += ",\"on\":"; j += des.on; j += ",\"s\":"; j += des.sup; j += ",\"e\":"; j += des.exh;
   j += "},\"rst\":{\"last\":"; j += lastRestore;
@@ -1067,7 +1070,7 @@ void handleRaw() {
 void handleConfigGet() {
   String j; j.reserve(2500);
   j += "{\"link\":{\"addr\":"; j += cfg.addr; j += ",\"baud\":"; j += cfg.baud; j += ",\"fmt\":"; j += cfg.fmt;
-  j += ",\"poll\":"; j += cfg.pollSec; j += ",\"to\":"; j += cfg.timeoutMs; j += ",\"div\":"; j += cfg.tempDiv;
+  j += ",\"poll\":"; j += cfg.pollSec; j += ",\"to\":"; j += cfg.timeoutMs;
   j += ",\"wfc\":"; j += cfg.writeFc;
   j += "},\"rst\":{\"on\":"; j += cfg.autoRestart; j += ",\"delay\":"; j += cfg.restoreDelay;
   j += "},\"rules\":{\"on\":"; j += cfg.rulesOn; j += ",\"hyst\":"; jNum(j, cfg.hyst, 1);
@@ -1112,7 +1115,6 @@ void handleConfigSet() {
     cfg.fmt = constrain(server.arg("fmt").toInt(), 0, 3);
     cfg.pollSec = constrain(server.arg("poll").toInt(), 1, 60);
     cfg.timeoutMs = constrain(server.arg("to").toInt(), 50, 2000);
-    cfg.tempDiv = server.arg("div").toInt() == 10 ? 10 : 1;
     cfg.writeFc = server.arg("wfc").toInt() == 16 ? 16 : 6;
     uartApply();
     singleMode = false; echoSeen = false; pollNow = true;
@@ -1266,7 +1268,7 @@ void handleCsv() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/csv", "");
   String chunk; chunk.reserve(2600);
-  chunk = "time,room_C,outdoor_C,exhaust_C,supply_est_C,minutes,heat_kept_Wh,heat_lost_Wh,fan_Wh\r\n";
+  chunk = "time,RA_C,OA_C,FR_C,SA_C,minutes,heat_kept_Wh,heat_lost_Wh,fan_Wh\r\n";
   SampleCb row = [&](const Sample &s) {
     struct tm tm; localTm(s.t, tm);
     char b[160];
@@ -1328,7 +1330,8 @@ void handleRelays() {
   page.reserve(3000);
   page += F("<!doctype html><html><head><meta charset='utf-8'>"
             "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>HKL-EA8 relays</title></head>"
+            "<title>HKL-EA8 relays</title>"
+            "<link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f7a5c'/%3E%3Cg fill='%23fff'%3E%3Cpath id='b' d='M16 16C13 12 13 6 17.5 4.5C21.5 3.5 22.5 9 16 16Z'/%3E%3Cuse href='%23b' transform='rotate(90 16 16)'/%3E%3Cuse href='%23b' transform='rotate(180 16 16)'/%3E%3Cuse href='%23b' transform='rotate(270 16 16)'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%231f7a5c' stroke='%23fff' stroke-width='1.4'/%3E%3C/svg%3E\"></head>"
             "<body style='font-family:Arial;max-width:700px;margin:25px auto;padding:10px'>"
             "<h2>HKL-EA8 Relay Control</h2>");
   for (int ch = 0; ch < 8; ch++) {
@@ -1379,6 +1382,7 @@ void setup() {
   configTzTime(TZ_INFO, NTP1, NTP2, NTP3);
 
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/favicon.ico", HTTP_GET, [] { server.send(204); });  // the pages carry an inline SVG icon
   server.on("/relays", HTTP_GET, handleRelays);
   server.on("/relay", HTTP_GET, handleRelay);
   server.on("/api/state", HTTP_GET, handleState);

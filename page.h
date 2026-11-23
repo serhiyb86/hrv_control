@@ -7,6 +7,7 @@ const char PAGE_HTML[] PROGMEM = R"HTMLPAGE(
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HRV Control — CH-HRV3.5KDC</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f7a5c'/%3E%3Cg fill='%23fff'%3E%3Cpath id='b' d='M16 16C13 12 13 6 17.5 4.5C21.5 3.5 22.5 9 16 16Z'/%3E%3Cuse href='%23b' transform='rotate(90 16 16)'/%3E%3Cuse href='%23b' transform='rotate(180 16 16)'/%3E%3Cuse href='%23b' transform='rotate(270 16 16)'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%231f7a5c' stroke='%23fff' stroke-width='1.4'/%3E%3C/svg%3E">
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#1d2329;--mut:#6b7680;--line:#dde3e8;--acc:#1f7a5c;--acc2:#e6f3ee;
 --warn:#b7791f;--warnbg:#fff6e0;--err:#c0392b;--errbg:#fdecea;--blue:#2563a8;--bluebg:#e8f0fb}
@@ -124,10 +125,10 @@ input[type=number]{width:80px}
 <!-- ================= DASHBOARD ================= -->
 <section class="tab on" id="dash">
   <div class="temps" style="margin-bottom:12px">
-    <div class="t"><div class="lbl">Room <span class="reg">R12</span></div><div class="big" id="tRoom">--</div></div>
-    <div class="t"><div class="lbl">Outdoor <span class="reg">R13</span></div><div class="big" id="tOut">--</div></div>
-    <div class="t"><div class="lbl">Exhaust air <span class="reg">R14</span></div><div class="big" id="tExh">--</div></div>
-    <div class="t"><div class="lbl">Defrost sensor <span class="reg">R15</span></div><div class="big" id="tDef">--</div></div>
+    <div class="t"><div class="lbl">Return air (RA) <span class="reg">R12</span></div><div class="big" id="tRA">--</div><div class="mut">from the rooms</div></div>
+    <div class="t"><div class="lbl">Outside air (OA) <span class="reg">R13</span></div><div class="big" id="tOA">--</div><div class="mut">from outdoors</div></div>
+    <div class="t"><div class="lbl">Supply air (SA) <span class="reg">R14</span></div><div class="big" id="tSA">--</div><div class="mut">into the rooms</div></div>
+    <div class="t"><div class="lbl">Fresh/exhaust air (FR) <span class="reg">R15</span></div><div class="big" id="tFR">--</div><div class="mut">out to outdoors</div></div>
   </div>
   <div class="grid">
     <div class="card">
@@ -177,9 +178,9 @@ input[type=number]{width:80px}
         <tr><td>Heat kept</td><td id="liveKept">--</td></tr>
         <tr><td>Heat lost</td><td id="liveLost">--</td></tr>
         <tr><td>Fans</td><td id="liveFan">--</td></tr>
-        <tr><td>Supply air (est.)</td><td id="liveSup">--</td></tr>
+        <tr><td>Exhaust side</td><td id="effExh">--</td></tr>
       </table>
-      <div class="mut" style="margin-top:6px">Efficiency = (room − exhaust) / (room − outdoor). Power uses the airflow table in Energy.</div>
+      <div class="mut" style="margin-top:6px">Efficiency = (SA − OA) / (RA − OA), supply side. Exhaust side = (RA − FR) / (RA − OA). Power uses the airflow table in Energy.</div>
     </div>
   </div>
 </section>
@@ -200,7 +201,7 @@ input[type=number]{width:80px}
     <div class="card">
       <h3>Bypass preview</h3>
       <div id="bpPreview"></div>
-      <div class="bypass-vis">Bypass opens when X ≤ outdoor &lt; X + Y (manual p.19).</div>
+      <div class="bypass-vis">Bypass opens when X ≤ OA &lt; X + Y (manual p.19).</div>
     </div>
     <div class="card">
       <h3>Restricted <span class="reg">R8 / R21</span></h3>
@@ -229,7 +230,7 @@ input[type=number]{width:80px}
     </div>
 
     <div class="card" style="grid-column:span 2;min-width:0">
-      <h3>Fan control by outdoor / room temperature</h3>
+      <h3>Fan control by outside (OA) / return (RA) temperature</h3>
       <div class="row"><label class="switch"><input type="checkbox" id="rulesOn"><span class="slider"></span></label> <b>Enabled</b>
         <span class="mut">— speeds change only when another rule takes over, so a manual change stays until then. Only while the unit is ON.</span></div>
       <div class="mut" style="margin:6px 0">Rules are checked top to bottom; the first match sets the speeds. Ranges are “from ≤ value &lt; to”, an empty field means any.</div>
@@ -301,9 +302,10 @@ input[type=number]{width:80px}
       </table>
       <div class="row"><button class="btn pri" onclick="saveEnergy()">Save</button></div>
       <div class="mut" style="margin-top:8px">Calculated every poll from the four temperatures and the current fan speeds (R10/R11):<br>
-        kept = 0.335 × exhaust airflow × (room − exhaust)<br>
-        lost = 0.335 × supply airflow × (room − outdoor) − kept<br>
-        Counted only while heating (outdoor below room), not during defrost (R18 B3) or with the bypass open (R18 B1).
+        kept = 0.335 × supply airflow × (SA − OA)<br>
+        lost = 0.335 × supply airflow × (RA − SA)<br>
+        kept + lost is what heating the outside air to room temperature would take without the HRV.
+        Counted only while heating (OA below RA), not during defrost (R18 B3) or with the bypass open (R18 B1).
         Only sensible heat; moisture recovery is not counted, so real savings are a bit higher.</div>
     </div>
     <div class="card">
@@ -326,7 +328,6 @@ input[type=number]{width:80px}
         <tr><td>Format</td><td><select id="lFmt"><option value="0">8N1</option><option value="1">8E1</option><option value="2">8O1</option><option value="3">8N2</option></select></td></tr>
         <tr><td>Poll interval</td><td><input type="number" id="lPoll" min="1" max="60"> s</td></tr>
         <tr><td>Timeout</td><td><input type="number" id="lTo" min="50" max="2000"> ms</td></tr>
-        <tr><td>Temperature scale</td><td><select id="lDiv"><option value="1">×1 (°C)</option><option value="10">÷10</option></select></td></tr>
         <tr><td>Write function</td><td><select id="lWfc"><option value="6">FC06 single register</option><option value="16">FC16 multiple registers</option></select></td></tr>
       </table>
       <div class="row"><button class="btn pri" onclick="saveLink()">Save</button></div>
@@ -431,7 +432,7 @@ const META={
  6:{n:'Defrost duration',u:'min',min:2,max:20,def:10},
  7:{n:'CO₂ setpoint',u:'ppm',min:392,max:1960,def:1000,co2:1},
  8:{n:'Modbus address'},9:{n:'Unit on/off'},10:{n:'Supply fan speed'},11:{n:'Exhaust fan speed'},
- 12:{n:'Room temperature'},13:{n:'Outdoor temperature'},14:{n:'Exhaust air temperature'},15:{n:'Defrost sensor temperature'},
+ 12:{n:'Return air (RA) temperature'},13:{n:'Outside air (OA) temperature'},14:{n:'Supply air (SA) temperature'},15:{n:'Fresh/exhaust air (FR) temperature'},
  16:{n:'External on/off input'},17:{n:'CO₂ on/off signal'},18:{n:'Status bits'},19:{n:'Electric heater stage'},
  20:{n:'Error bits'},21:{n:'Model selection'},22:{n:'Defrost mode'}};
 let S=null,CFG=null,R=[],RULES=[],TIMER=[],TAB='dash';
@@ -445,8 +446,9 @@ async function call(path,params,method){
   catch(e){return{ok:false,err:'network error'}}}
 const get=(p,q)=>call(p,q,'GET');
 function done(j,okMsg){if(j.ok){if(okMsg)toast(okMsg);return true}toast('Failed: '+(j.err||'error'));return false}
-const temp=r=>(!S||R[r]==null)?null:s16(R[r])/S.div;
-const fT=v=>v==null||isNaN(v)?'--':(S&&S.div>1?v.toFixed(1):String(Math.round(v)));
+const T_OFS=40;  // R12..R15: °C = raw − 40
+const temp=r=>(!S||R[r]==null)?null:R[r]-T_OFS;
+const fT=v=>v==null||isNaN(v)?'--':String(Math.round(v));
 const unitOn=()=>R[9]===1;
 const hm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 const toMin=s=>{const p=(s||'0:0').split(':');return(+p[0])*60+(+p[1])};
@@ -509,7 +511,7 @@ function renderFans(){speedButtons('spSup',10);speedButtons('spExh',11);
 const flag=(t,c)=>`<span class="flag ${c||''}">${t}</span>`;
 const deg=v=>`${fT(v)}<span class="unit"> °C</span>`;
 function renderDash(){
-  $('tRoom').innerHTML=deg(temp(12));$('tOut').innerHTML=deg(temp(13));$('tExh').innerHTML=deg(temp(14));$('tDef').innerHTML=deg(temp(15));
+  $('tRA').innerHTML=deg(temp(12));$('tOA').innerHTML=deg(temp(13));$('tSA').innerHTML=deg(temp(14));$('tFR').innerHTML=deg(temp(15));
   $('pwr').classList.toggle('on',unitOn());$('pwrTxt').textContent=R[9]==null?'--':unitOn()?'ON':'OFF';
   $('modeTxt').textContent='Speed: '+(S.rule.on?'temperature rules'+(S.rule.act>=0?` (rule ${S.rule.act+1})`:''):'manual')+(S.tmr.on?' · timer on':'');
   $('extIn').textContent=R[16]==null?'--':R[16]?'closed':'open';
@@ -517,17 +519,18 @@ function renderDash(){
   const b=R[18];
   $('flags').innerHTML=b==null?'--':(b&1?flag('FIRE ALARM','err'):flag('Fire alarm: no'))+
     (b&2?flag('Bypass OPEN','on'):'')+(b&4?flag('Bypass closed'):'')+(b&8?flag('Defrosting','warn'):flag('Defrost: idle'));
-  $('bpWin').textContent=R[2]==null?'--':`${R[2]} – ${R[2]+R[3]} °C (outdoor now ${fT(temp(13))} °C)`;
+  $('bpWin').textContent=R[2]==null?'--':`${R[2]} – ${R[2]+R[3]} °C (OA now ${fT(temp(13))} °C)`;
   $('heater').textContent=R[19]??'--';$('dMode').textContent=R[22]??'--';$('co2sig').textContent=R[17]==null?'--':R[17]?'on':'off';
   const e=R[20],E=[[4,'Outdoor sensor'],[8,'Defrost sensor'],[16,'Room sensor'],[32,'EEPROM']];
   $('errs').innerHTML=e==null?'--':e?E.filter(x=>e&x[0]).map(x=>flag(x[1],'err')).join('')+(e&~60?flag('Other bits: 0x'+e.toString(16),'err'):''):flag('No errors','on');
-  const r=temp(12),o=temp(13),x=temp(14);
-  if(r!=null&&o!=null&&x!=null&&Math.abs(r-o)>=2&&unitOn()){const ef=Math.round(100*(r-x)/(r-o));
+  const ra=temp(12),oa=temp(13),sa=temp(14),fr=temp(15),dT=ra!=null&&oa!=null&&Math.abs(ra-oa)>=2&&unitOn();
+  if(dT&&sa!=null){const ef=Math.round(100*(sa-oa)/(ra-oa));
     $('eff').innerHTML=ef+'<span class="unit"> %</span>';$('effBar').style.width=Math.max(0,Math.min(100,ef))+'%'}
   else{$('eff').innerHTML='--<span class="unit"> %</span>';$('effBar').style.width='0'}
+  $('effExh').textContent=dT&&fr!=null?Math.round(100*(ra-fr)/(ra-oa))+' %':'--';
   const lv=S.live,kw=w=>w==null?'--':w>=1000?(w/1000).toFixed(2)+' kW':Math.round(w)+' W';
   $('liveKept').textContent=lv.heating?kw(lv.kept):'0 W (not heating)';$('liveLost').textContent=lv.heating?kw(lv.lost):'—';
-  $('liveFan').textContent=kw(lv.fan);$('liveSup').textContent=lv.sup==null?'--':lv.sup.toFixed(1)+' °C';
+  $('liveFan').textContent=kw(lv.fan);
 }
 
 // ---------- unit settings ----------
@@ -574,11 +577,11 @@ async function saveRst(){done(await call('/api/config',{section:'rst',on:$('rstO
 function renderRules(){
   const opts=v=>[...Array(11).keys()].map(i=>`<option value="${i}" ${i==v?'selected':''}>${i==0?'stop':i}</option>`).join('');
   const num=(i,k,v)=>`<input type="number" step="0.5" style="width:58px" value="${v??''}" placeholder="any" onchange="RULES[${i}][${k}]=this.value===''?null:+this.value">`;
-  let h='<tr><th>#</th><th>Outdoor °C from – to</th><th>Room °C from – to</th><th>Outdoor vs room</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
+  let h='<tr><th>#</th><th>OA °C from – to</th><th>RA °C from – to</th><th>OA vs RA</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
   RULES.forEach((r,i)=>{
     h+=`<tr data-i="${i}"><td>${i+1}</td><td style="white-space:nowrap">${num(i,1,r[1])} – ${num(i,2,r[2])}</td><td style="white-space:nowrap">${num(i,3,r[3])} – ${num(i,4,r[4])}</td>`+
      `<td><select onchange="RULES[${i}][5]=+this.value;renderRules()"><option value="0" ${r[5]==0?'selected':''}>any</option>`+
-     `<option value="1" ${r[5]==1?'selected':''}>outdoor cooler by ≥</option><option value="2" ${r[5]==2?'selected':''}>outdoor warmer</option></select>`+
+     `<option value="1" ${r[5]==1?'selected':''}>OA cooler by ≥</option><option value="2" ${r[5]==2?'selected':''}>OA warmer</option></select>`+
      (r[5]==1?` <input type="number" step="0.5" style="width:56px" value="${r[6]??3}" onchange="RULES[${i}][6]=+this.value"> °C`:'')+`</td>`+
      `<td><select onchange="RULES[${i}][7]=+this.value">${opts(r[7])}</select></td><td><select onchange="RULES[${i}][8]=+this.value">${opts(r[8])}</select></td>`+
      `<td><input type="checkbox" ${r[0]?'checked':''} onchange="RULES[${i}][0]=this.checked?1:0"></td>`+
@@ -625,7 +628,7 @@ async function saveTimer(){
 async function loadConfig(){
   const c=await get('/api/config');if(!c||!c.link)return;CFG=c;
   $('lAddr').value=c.link.addr;$('lBaud').value=c.link.baud;$('lFmt').value=c.link.fmt;$('lPoll').value=c.link.poll;
-  $('lTo').value=c.link.to;$('lDiv').value=c.link.div;$('lWfc').value=c.link.wfc;
+  $('lTo').value=c.link.to;$('lWfc').value=c.link.wfc;
   $('rstOn').checked=!!c.rst.on;$('rstDelay').value=c.rst.delay;
   $('rulesOn').checked=!!c.rules.on;$('hyst').value=c.rules.hyst;$('hold').value=c.rules.hold;$('fb').value=c.rules.fb;
   RULES=c.rules.list.map(r=>r.slice());renderRules();
@@ -634,7 +637,7 @@ async function loadConfig(){
 async function saveLink(){
   if(!confirm('Apply new link settings? Wrong values stop communication with the unit.'))return;
   if(done(await call('/api/config',{section:'link',addr:$('lAddr').value,baud:$('lBaud').value,fmt:$('lFmt').value,
-    poll:$('lPoll').value,to:$('lTo').value,div:$('lDiv').value,wfc:$('lWfc').value}),'Link settings saved'))loadConfig()}
+    poll:$('lPoll').value,to:$('lTo').value,wfc:$('lWfc').value}),'Link settings saved'))loadConfig()}
 
 // ---------- advanced ----------
 function renderRegs(){
@@ -712,7 +715,7 @@ function evLine(el,o){
     s+=`<path d="${d}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" ${se.dash?'stroke-dasharray="6 4"':''}/>`;
     for(const i of single)s+=`<circle cx="${X(i)}" cy="${Y(se.v[i])}" r="3" fill="${se.color}"/>`;
     let li=-1;se.v.forEach((v,i)=>{if(v!=null)li=i});
-    if(o.endLabels&&li>=0)ends.push({y:Y(se.v[li]),name:se.name,color:se.color})}
+    if(o.endLabels&&li>=0)ends.push({y:Y(se.v[li]),name:se.short||se.name,color:se.color})}
   ends.sort((a,b)=>a.y-b.y);for(let i=1;i<ends.length;i++)if(ends[i].y-ends[i-1].y<15)ends[i].y=ends[i-1].y+15;
   for(const e of ends)s+=`<line x1="${ml+iw+6}" x2="${ml+iw+16}" y1="${e.y}" y2="${e.y}" stroke="${e.color}" stroke-width="2"/><text x="${ml+iw+20}" y="${e.y+4}">${e.name}</text>`;
   s+=`<line class="xh" x1="0" x2="0" y1="${mt}" y2="${mt+ih}" stroke="var(--text-secondary)" stroke-width="1" visibility="hidden"/>`;
@@ -776,7 +779,7 @@ function renderEnergy(){
   const d=EV.data,r=EV.range,F=EV_FMT[r],hp=+$('evHeatP').value,ep=+$('evElP').value;
   const rangeTxt={'24h':'last 24 h','7d':'last 7 days','30d':'last 30 days','12m':'last 12 months'}[r];
   if(!d){$('evTiles').replaceChildren();['evTemp','evEn','evEff'].forEach(id=>evEmpty($(id),'No data'));return}
-  const T=d.temp.map(x=>({t:x[0]*1000,room:x[1]==null?null:x[1]/10,out:x[2]==null?null:x[2]/10,exh:x[3]==null?null:x[3]/10,sup:x[4]==null?null:x[4]/10}));
+  const T=d.temp.map(x=>({t:x[0]*1000,ra:x[1]==null?null:x[1]/10,oa:x[2]==null?null:x[2]/10,fr:x[3]==null?null:x[3]/10,sa:x[4]==null?null:x[4]/10}));
   const B=d.bars.map(x=>({t:x[0]*1000,kept:x[1]==null?null:x[1]/1000,lost:x[2]==null?null:x[2]/1000,fan:x[3]==null?null:x[3]/1000,out:x[4]==null?null:x[4]/10}));
   B.forEach(b=>b.eff=b.kept>0.005?100*b.kept/(b.kept+b.lost):null);
   const tot=B.reduce((a,b)=>({kept:a.kept+(b.kept||0),lost:a.lost+(b.lost||0),fan:a.fan+(b.fan||0)}),{kept:0,lost:0,fan:0});
@@ -784,22 +787,22 @@ function renderEnergy(){
   const f1=v=>v<10?v.toFixed(2):v.toFixed(1);
   $('evTiles').replaceChildren(
     evTile('Heat kept at home',f1(tot.kept),'kWh',without?`${pct} % of ${f1(without)} kWh you would lose without the HRV`:'no heating in this period',C1),
-    evTile('Heat lost',f1(tot.lost),'kWh','leaves with the exhaust air',C2),
+    evTile('Heat lost',f1(tot.lost),'kWh','not recovered; heating has to cover it',C2),
     evTile('Fan electricity',f1(tot.fan),'kWh',`≈ ${(tot.fan*ep).toFixed(0)} ₴`),
     evTile('Net saving',(tot.kept*hp-tot.fan*ep).toFixed(0),'₴',rangeTxt),
     evTile('Return on fan power',tot.fan>0.001?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
   $('evTempSub').textContent=r=='24h'?'10-minute averages':r=='7d'?'hourly averages':'daily averages';
-  const ts=[{name:'Room',color:C1,v:T.map(x=>x.room)},{name:'Outdoor',color:C2,v:T.map(x=>x.out)},
-            {name:'Exhaust air',color:C3,v:T.map(x=>x.exh)},{name:'Supply (est.)',color:C4,v:T.map(x=>x.sup),dash:1}];
+  const ts=[{name:'Return air (RA)',short:'RA',color:C1,v:T.map(x=>x.ra)},{name:'Outside air (OA)',short:'OA',color:C2,v:T.map(x=>x.oa)},
+            {name:'Supply air (SA)',short:'SA',color:C4,v:T.map(x=>x.sa)},{name:'Fresh/exhaust air (FR)',short:'FR',color:C3,v:T.map(x=>x.fr)}];
   evLegend('evTempLeg',ts);
   evLine($('evTemp'),{x:T.map(x=>x.t),series:ts,unit:'°',fmtX:F.tx,fmtTip:F.tt,endLabels:1,aria:'Temperatures, '+rangeTxt});
   const en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
   evLegend('evEnLeg',en.map(e=>({...e,box:1})));
   evBars($('evEn'),{x:B.map(b=>b.t),series:en,fmtX:F.bx,fmtTip:F.bt,aria:'Heat kept and lost, '+rangeTxt,
-    extra:i=>B[i].fan==null?[]:[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg outdoor',B[i].out==null?'—':B[i].out.toFixed(1)+' °C')]});
+    extra:i=>B[i].fan==null?[]:[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg OA',B[i].out==null?'—':B[i].out.toFixed(1)+' °C')]});
   evLine($('evEff'),{x:B.map(b=>b.t),series:[{name:'Efficiency',color:C1,v:B.map(b=>b.eff)}],unit:'%',fixedY:[0,100],h:200,
     ref:{v:75,label:'Spec 75 %'},fmtX:F.bx,fmtTip:F.bt,aria:'Heat recovery efficiency, '+rangeTxt});
-  let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg outdoor</th></tr>';
+  let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg OA</th></tr>';
   const n2=v=>v==null?'—':v.toFixed(2);
   for(const b of B)h+=`<tr><td>${F.bt(b.t)}</td><td>${n2(b.kept)}</td><td>${n2(b.lost)}</td><td>${n2(b.fan)}</td><td>${b.eff==null?'—':b.eff.toFixed(0)+' %'}</td><td>${b.out==null?'—':b.out.toFixed(1)+' °C'}</td></tr>`;
   $('evTbl').innerHTML=h+'</table>'}
