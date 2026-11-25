@@ -12,5 +12,5 @@ https://github.com/hankerila-MA/HKL-EA8
 2. control air conditioners 5 IR
 3. vent for basement
 4. connect to Telegram bot
-5. add favicon
+5. fix timer to be able to schedule on in one day and off in next day
 
