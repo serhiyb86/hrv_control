@@ -51,9 +51,9 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 | R9 | 1 | unit ON |
 | R10 / R11 | 8 / 8 | fan speed code 8 = 4th speed |
 | R12 | **56** | RA return air: 56 − 40 = 16 °C |
-| R13 | **52** | OA outside air: 12 °C |
+| R13 | **52** | OA exhaust air (out to outdoors): 12 °C |
 | R14 | **57** | SA supply air: 17 °C |
-| R15 | **48** | FR fresh/exhaust air: 8 °C |
+| R15 | **48** | FR fresh air (intake from outdoors): 8 °C |
 | R16 / R17 | 0 / 0 | external on/off, CO₂ signal |
 | R18 | 4 | B2 = bypass off |
 | R19 | **96** | heater stage: unexpected value |
@@ -86,9 +86,9 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 | 10 | Supply fan speed | see fan-speed codes below | |
 | 11 | Exhaust fan speed | see fan-speed codes below | |
 | **12** | **RA — return air** (extracted from the building), °C = raw − 40 | current value (read only) | |
-| 13 | OA — outside air (outdoor air entering the unit), °C = raw − 40 | current value | |
+| 13 | OA — exhaust air (discharged outdoors), °C = raw − 40 (checked on the unit: R13 reads the exhaust, R15 the outdoor intake) | current value | |
 | 14 | SA — supply air (supplied to the building), °C = raw − 40 | current value | |
-| 15 | FR — fresh/exhaust air (discharged outdoors), °C = raw − 40 | current value | |
+| 15 | FR — fresh air (outdoor air entering the unit), the outdoor temperature, °C = raw − 40 | current value | |
 | 16 | External on/off input | status | |
 | 17 | CO₂ on/off signal | status | |
 | 18 | Status bits | B0 fire alarm, B1 bypass on, B2 bypass off, B3 defrosting | |
@@ -110,7 +110,7 @@ RX: 0E 03 28 00 03 00 1E 00 2E 00 0A 00 66 00 0E 00 01 00 08 00 08 00 38 00 34 0
 
 Codes 1, 4, 6 and 7 are not listed.
 
-**Bypass logic (p.19):** the bypass opens when X ≤ outdoor temperature < X + Y. With the defaults, that is 19–22 °C.
+**Bypass logic (p.19):** the bypass opens when X ≤ outdoor temperature (FR) < X + Y. With the defaults, that is 19–22 °C. With SW4-2 = ON the bypass is driven by the dry contact instead; the controller uses board relay 1 for that (air cond mode).
 
 ---
 

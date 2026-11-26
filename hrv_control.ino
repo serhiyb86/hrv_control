@@ -4,7 +4,8 @@
 // Web UI: http://192.168.1.200/
 //   Dashboard     - temperatures, power, fan speeds, status and error bits
 //   Unit settings - bypass, defrost, CO2 setpoint (registers 2..7), Modbus address
-//   Automation    - auto-restart after power loss, fan rules by temperature, weekly timer
+//   Automation    - auto-restart after power loss, air cond (free cooling by bypass, relay 1),
+//                   fan rules by temperature, weekly timer
 //   Energy        - heat kept / lost, history charts, CSV, clear history
 //   Advanced      - link settings, raw register access, log
 //
@@ -71,7 +72,8 @@ enum {
   R_MODEL = 21, R_DEFMODE = 22
 };
 // R12..R15 temperatures, raw value = °C + 40:
-//   RA return air (from the rooms), OA outside air, SA supply air (into the rooms), FR fresh/exhaust air (out to outdoors)
+//   RA return air (from the rooms), OA exhaust air (out to outdoors), SA supply air (into the rooms),
+//   FR fresh air (intake from outdoors) - FR is the outdoor temperature
 const int TEMP_OFS = 40;
 const int REG_FIRST = 2, REG_LAST = 22, NREG = 23;
 const int REG_BLOCK_LAST = 21;   // unit answers at most 20 registers per FC03 request (count 21 times out)
@@ -106,6 +108,16 @@ struct Config {
 
 struct Desired { uint8_t valid, on, sup, exh; };
 
+// Air cond (free cooling): relay 1 drives the unit's manual-bypass dry contact (SW4-2 = ON).
+// Stored under its own NVS key "ac", so adding it did not change the Config layout.
+const uint32_t AC_MAGIC = 0x41433031;   // "AC01"
+struct AcCfg {
+  uint32_t magic;
+  uint8_t on, hrs;           // enabled; only between from and to
+  int8_t tgt, d, hyst;       // desired room °C, outdoor cooler than room by >= d °C, hysteresis °C (integers)
+  uint16_t hold, from, to;   // min hold time (min); allowed hours, minutes of the day (from > to runs past midnight)
+};
+
 enum MbErr { MB_OK, MB_TIMEOUT, MB_CRC, MB_EXCEPTION, MB_BAD };
 
 // History records. Temperatures are x10 °C, NOVAL = no value.
@@ -114,7 +126,7 @@ struct __attribute__((packed)) MinRec  { uint32_t t; int16_t room, out, exh, sup
 struct __attribute__((packed)) HourRec { uint32_t t; int16_t room, out, exh, sup; uint16_t kept, lost, fan, n; };              // Wh, Wh, 0.1 Wh, minutes
 struct __attribute__((packed)) DayRec  { uint32_t t; int16_t room, out, exh, sup; uint32_t kept, lost, fan; uint16_t n; };      // Wh, Wh, 0.1 Wh, minutes
 
-struct Sample { uint32_t t; float room, out, exh, sup, w, kept, lost, fan; };  // room = RA, out = OA, exh = FR, sup = SA; w = minutes, energy in Wh
+struct Sample { uint32_t t; float room, out, exh, sup, w, kept, lost, fan; };  // room = RA, out = FR (outdoor), exh = OA (exhaust), sup = SA; w = minutes, energy in Wh
 
 struct Agg {
   double room = 0, out = 0, exh = 0, sup = 0, w = 0, exhW = 0, supW = 0, kept = 0, lost = 0, fan = 0;
@@ -136,7 +148,7 @@ struct Agg {
 
 struct MinAcc { uint32_t t; double room, out, exh, sup, kept, lost, fan; uint16_t n, exhN; uint8_t flags, spd; };
 
-struct Live { float kept, lost, fan; bool heating; };
+struct Live { float kept, lost, fan, cool; bool heating; };   // cool = free cooling while the bypass is open, W
 
 typedef std::function<void(const Sample &)> SampleCb;
 typedef std::function<void(const uint8_t *)> RecCb;
@@ -166,12 +178,19 @@ int activeRule = RULE_UNSET; uint32_t ruleSwitchMs = 0;
 int lastTimerKey = -1;
 String timerLast;   // last timer action, shown in the UI
 
+const int AC_RELAY = 0;                      // board relay 1
+AcCfg ac;
+uint8_t acSt = 0;                            // 0 off, 1 waiting, 2 cooling, 3 blocked
+String acWhy = "disabled";
+bool acManOff = false, acTurnedOn = false;   // unit switched off by hand; air cond switched the unit on
+uint32_t acSinceMs = 0, acSwitchMs = 0;      // last relay change (for the UI / for the hold time)
+
 bool fsOk = false;
 MinAcc macc = {};
 MinRec minBuf[16]; int minBufN = 0;
 uint32_t lastHourDone = 0, lastDayDone = 0; bool histInit = false;
 uint32_t lastEnergyMs = 0;
-Live live = {0, 0, 0, false};
+Live live = {0, 0, 0, 0, false};
 bool timeWasValid = false;
 
 const int LOG_N = 60;
@@ -284,9 +303,12 @@ void loadConfig() {
     setDefaults();
   }
   if (prefs.getBytesLength("des") == sizeof des) prefs.getBytes("des", &des, sizeof des);
+  if (prefs.getBytesLength("ac") == sizeof ac) prefs.getBytes("ac", &ac, sizeof ac);
+  if (ac.magic != AC_MAGIC) ac = {AC_MAGIC, 0, 0, 23, 2, 1, 5, 1320, 480};
 }
 
 void saveConfig() { prefs.putBytes("cfg", &cfg, sizeof cfg); }
+void saveAc() { prefs.putBytes("ac", &ac, sizeof ac); }
 
 void saveDesiredIfDirty() {
   if (desDirty && millis() - desDirtyMs > 30000) {
@@ -454,8 +476,10 @@ void adoptState() {
   bool changed = on != des.on;
   if (on && s >= 0 && e >= 0 && (s != des.sup || e != des.exh)) changed = true;
   if (!changed) return;
+  bool powerChanged = on != des.on;
   if (on && s >= 0 && e >= 0) setDesired(on, s, e); else setDesired(on, -1, -1);
   manualMs = millis();
+  if (powerChanged) acManOff = !on;   // switched off on the wall controller: air cond waits like after a manual OFF
   addLog("Changed on the unit: %s S%d / E%d", on ? "ON" : "OFF", s, e);
 }
 
@@ -491,7 +515,7 @@ bool ruleMatch(const Rule &r, float out, float room, float h) {
 
 void evalRules() {
   if (!unitOn()) { activeRule = RULE_UNSET; return; }
-  float out = tempOf(R_OA), room = tempOf(R_RA);
+  float out = tempOf(R_FR), room = tempOf(R_RA);
   if (isnan(out) || isnan(room) || (regOk[R_ERR] && (regs[R_ERR] & (ERR_OUT | ERR_ROOM)))) return;
   int cand = -1;
   for (int i = 0; i < cfg.nRules; i++)
@@ -521,31 +545,39 @@ bool timerSwitch(bool on, const char *src) {
     if (!unitOn()) ok = setPower(true, src);
     if (ok && !cfg.rulesOn && des.valid && (supLvl() != des.sup || exhLvl() != des.exh))
       ok = setSpeeds(des.sup, des.exh, src);
+  } else if (ac.on && relayState[AC_RELAY]) {
+    addLog("%s OFF skipped: air cond is cooling", src);   // air cond wins over the timer; acStop hands back when done
   } else if (unitOn() || !regOk[R_POWER]) {
     ok = setPower(false, src);
   }
+  if (on) acManOff = false;
+  bool kept = !on && ac.on && relayState[AC_RELAY];
   time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
-  char b[80];
-  snprintf(b, sizeof b, "%02d:%02d %s %s%s", tm.tm_hour, tm.tm_min, src, on ? "ON" : "OFF",
-           ok ? "" : (" failed: " + mbLastErr).c_str());
+  char b[110];
+  snprintf(b, sizeof b, "%02d:%02d %s %s%s%s", tm.tm_hour, tm.tm_min, src, on ? "ON" : "OFF",
+           kept ? " (kept on: air cond cooling)" : "", ok ? "" : (" failed: " + mbLastErr).c_str());
   timerLast = b;
   if (!ok) addLog("%s", b);
   return ok;
 }
 
+// True if the schedule wants the unit on right now (time must be valid)
+bool timerWants() {
+  time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
+  int mod = tm.tm_hour * 60 + tm.tm_min, day = (tm.tm_wday + 6) % 7;
+  for (int k = 0; k < 2; k++) {
+    const Period &p = cfg.tmr[day][k];
+    if (p.en && p.on <= mod && (p.off < p.on || mod < p.off)) return true;   // off < on: runs past midnight
+    const Period &y = cfg.tmr[(day + 6) % 7][k];                             // yesterday's overnight period
+    if (y.en && y.off < y.on && mod < y.off) return true;
+  }
+  return false;
+}
+
 // Applies the state the schedule wants right now (used when the timer is saved or the time syncs)
 void applyTimerNow(const char *src) {
   if (!cfg.timerOn || !timeValid()) return;
-  time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
-  int mod = tm.tm_hour * 60 + tm.tm_min, day = (tm.tm_wday + 6) % 7;
-  bool want = false;
-  for (int k = 0; k < 2; k++) {
-    const Period &p = cfg.tmr[day][k];
-    if (p.en && p.on <= mod && (p.off < p.on || mod < p.off)) want = true;   // off < on: runs past midnight
-    const Period &y = cfg.tmr[(day + 6) % 7][k];                             // yesterday's overnight period
-    if (y.en && y.off < y.on && mod < y.off) want = true;
-  }
-  timerSwitch(want, src);
+  timerSwitch(timerWants(), src);
   manualMs = 0;
 }
 
@@ -570,6 +602,79 @@ void timerTick() {
     manualMs = 0;
     applyTimerNow("Timer revert");
   }
+}
+
+// ============================================================ air cond (free cooling by bypass)
+// ON:  RA > desired and FR <= RA - delta.  OFF: RA <= desired - hyst or FR > RA - delta + hyst.
+// While cooling, the timer cannot switch the unit off; when cooling ends, the timer is in charge again.
+void setRelay(int ch, bool on) {
+  relayState[ch] = on;
+  relays.digitalWrite(ch, on ? RELAY_ON : RELAY_OFF);
+}
+
+void acRelay(bool on, const char *src) {
+  if (relayState[AC_RELAY] == on) return;
+  setRelay(AC_RELAY, on);
+  acSinceMs = acSwitchMs = millis();
+  addLog("%s: relay 1 %s", src, on ? "closed (bypass on)" : "open (bypass off)");
+}
+
+// Opens the relay (if closed) and hands control back to the timer
+void acStop(uint8_t st, const String &why, const char *src) {
+  acSt = st; acWhy = why;
+  if (!relayState[AC_RELAY]) return;
+  acRelay(false, src);
+  bool off = cfg.timerOn && timeValid() ? !timerWants() : acTurnedOn;   // timer says OFF, or undo our own switch-on
+  if (linkOk && off && unitOn()) setPower(false, "Air cond done");
+  acTurnedOn = false;
+}
+
+void acTick() {
+  if (!ac.on) {   // only once when it gets disabled; afterwards relay 1 is free for the Relays page
+    if (acSt != 0) acStop(0, "disabled", "Air cond disabled");
+    return;
+  }
+  if (!linkOk) { acStop(3, "no link to the unit", "Air cond: link lost"); return; }
+  if (restorePending) return;
+  float ra = tempOf(R_RA), fr = tempOf(R_FR);
+  if (isnan(ra) || isnan(fr) || (regOk[R_ERR] && (regs[R_ERR] & (ERR_OUT | ERR_ROOM)))) {
+    acStop(3, "temperature sensor error (R20)", "Air cond: sensor error"); return;
+  }
+  if (acManOff) { acStop(1, "unit switched off by hand, waits for the next timer ON or a manual ON", "Air cond"); return; }
+  if (ac.hrs) {
+    if (!timeValid()) { acStop(1, "time not synced (allowed hours are set)", "Air cond"); return; }
+    time_t t = time(nullptr); struct tm tm; localtime_r(&t, &tm);
+    int m = tm.tm_hour * 60 + tm.tm_min;
+    bool in = ac.from < ac.to ? (m >= ac.from && m < ac.to) : (m >= ac.from || m < ac.to);
+    if (!in) {
+      char b[60];
+      snprintf(b, sizeof b, "outside allowed hours %02d:%02d–%02d:%02d", ac.from / 60, ac.from % 60, ac.to / 60, ac.to % 60);
+      acStop(1, b, "Air cond: end of allowed hours"); return;
+    }
+  }
+  bool cooling = relayState[AC_RELAY];
+  float lim = ra - ac.d + (cooling ? ac.hyst : 0);   // outdoor limit that applies now
+  bool need = cooling ? !(ra <= ac.tgt - ac.hyst || fr > lim) : (ra > ac.tgt && fr <= lim);
+  char why[120];
+  if (need) snprintf(why, sizeof why, "room %.0f °C, desired %d °C · outdoor %.0f °C (needs ≤ %.0f °C)", ra, ac.tgt, fr, lim);
+  else if (ra <= ac.tgt - (cooling ? ac.hyst : 0)) snprintf(why, sizeof why, "room %.0f °C is not above %d °C", ra, ac.tgt);
+  else snprintf(why, sizeof why, "outdoor %.0f °C is not cool enough (needs ≤ %.0f °C)", fr, lim);
+  uint32_t holdMs = ac.hold * 60000UL;
+  if (need != cooling && acSwitchMs && millis() - acSwitchMs < holdMs) {
+    acSt = cooling ? 2 : 1;
+    acWhy = String(why) + " · min hold time, can switch in " + String((holdMs - (millis() - acSwitchMs) + 59999) / 60000) + " min";
+    return;
+  }
+  if (need && !cooling) {
+    if (!unitOn()) {
+      if (!setPower(true, "Air cond")) { acSt = 3; acWhy = "cannot switch the unit on: " + mbLastErr; return; }
+      acTurnedOn = true;
+    }
+    acRelay(true, "Air cond");
+  } else if (!need && cooling) {
+    acStop(1, why, "Air cond");
+  }
+  acSt = need ? 2 : 1; acWhy = why;
 }
 
 // ============================================================ history storage
@@ -829,27 +934,28 @@ void energySample() {
   lastEnergyMs = ms;
   dt = min(dt, cfg.pollSec * 3.0f);
 
-  float ra = tempOf(R_RA), oa = tempOf(R_OA), sa = tempOf(R_SA), fr = tempOf(R_FR);
+  float ra = tempOf(R_RA), oa = tempOf(R_OA), sa = tempOf(R_SA), fr = tempOf(R_FR);   // fr = outdoor, oa = exhaust
   bool on = unitOn();
   int ls = on ? max(0, supLvl()) : 0, le = on ? max(0, exhLvl()) : 0;
   float qs = cfg.flow[ls];
   uint16_t st = regOk[R_STATUS] ? regs[R_STATUS] : 0;
   bool defrost = st & ST_DEFROST, bypass = st & ST_BYPASS_ON;
-  bool sensorsOk = !isnan(ra) && !isnan(oa) && !isnan(sa) &&
+  bool sensorsOk = !isnan(ra) && !isnan(fr) && !isnan(sa) &&
                    !(regOk[R_ERR] && (regs[R_ERR] & (ERR_OUT | ERR_ROOM)));
 
-  // supply side: the outside air is warmed from OA to SA by the exchanger (kept); heating has to cover SA -> RA (lost)
-  live.heating = on && sensorsOk && !defrost && !bypass && oa < ra && qs > 0;
-  live.kept = live.heating ? max(0.0f, 0.335f * qs * (sa - oa)) : 0;
+  // supply side: the outdoor air is warmed from FR to SA by the exchanger (kept); heating has to cover SA -> RA (lost)
+  live.heating = on && sensorsOk && !defrost && !bypass && fr < ra && qs > 0;
+  live.kept = live.heating ? max(0.0f, 0.335f * qs * (sa - fr)) : 0;
   live.lost = live.heating ? max(0.0f, 0.335f * qs * (ra - sa)) : 0;
   live.fan = on ? (cfg.fanW[ls] + cfg.fanW[le]) / 2.0f : 0;
+  live.cool = on && sensorsOk && bypass && qs > 0 ? max(0.0f, 0.335f * qs * (ra - fr)) : 0;   // live only, not in history
 
   if (!timeValid() || !sensorsOk) return;
   uint32_t now = nowT(), key = now - now % 60;
   if (macc.n && macc.t != key) finishMinute();
   macc.t = key;
-  macc.room += ra; macc.out += oa; macc.sup += sa; macc.n++;
-  if (!isnan(fr)) { macc.exh += fr; macc.exhN++; }
+  macc.room += ra; macc.out += fr; macc.sup += sa; macc.n++;
+  if (!isnan(oa)) { macc.exh += oa; macc.exhN++; }
   macc.kept += live.kept * dt / 3600; macc.lost += live.lost * dt / 3600; macc.fan += live.fan * dt / 3600;
   macc.flags = (on ? 1 : 0) | (defrost ? 2 : 0) | (bypass ? 4 : 0) | (live.heating ? 8 : 0);
   macc.spd = (ls << 4) | le;
@@ -965,6 +1071,7 @@ void handleState() {
   j += "],\"live\":{\"kept\":"; jNum(j, live.kept, 0);
   j += ",\"lost\":"; jNum(j, live.lost, 0);
   j += ",\"fan\":"; jNum(j, live.fan, 0);
+  j += ",\"cool\":"; jNum(j, live.cool, 0);
   j += ",\"heating\":"; j += live.heating ? "true" : "false";
   j += "},\"des\":{\"valid\":"; j += des.valid; j += ",\"on\":"; j += des.on; j += ",\"s\":"; j += des.sup; j += ",\"e\":"; j += des.exh;
   j += "},\"rst\":{\"last\":"; j += lastRestore;
@@ -972,6 +1079,9 @@ void handleState() {
   j += "},\"rule\":{\"on\":"; j += cfg.rulesOn; j += ",\"act\":"; j += activeRule;
   j += "},\"tmr\":{\"on\":"; j += cfg.timerOn; j += ",\"manual\":"; j += manualMs ? (long)((millis() - manualMs) / 1000) : -1L;
   j += ",\"last\":\""; j += jsonEsc(timerLast); j += '"';
+  j += "},\"ac\":{\"on\":"; j += ac.on; j += ",\"st\":"; j += acSt;
+  j += ",\"why\":\""; j += jsonEsc(acWhy); j += "\",\"relay\":"; j += relayState[AC_RELAY] ? 1 : 0;
+  j += ",\"ago\":"; j += (long)((millis() - acSinceMs) / 1000);
   j += "}}";
   sendJson(j);
 }
@@ -992,6 +1102,7 @@ void handleLog() {
 void handlePower() {
   bool on = server.arg("on").toInt() == 1;
   if (!setPower(on, "Web")) { sendErr(mbLastErr); return; }
+  acManOff = !on;
   if (cfg.timerOn) manualMs = millis();
   sendOk();
 }
@@ -1111,7 +1222,10 @@ void handleConfigGet() {
   for (int i = 0; i < 11; i++) { if (i) j += ','; j += cfg.flow[i]; }
   j += "],\"fanw\":[";
   for (int i = 0; i < 11; i++) { if (i) j += ','; j += cfg.fanW[i]; }
-  j += "]}}";
+  j += "]},\"ac\":{\"on\":"; j += ac.on; j += ",\"tgt\":"; j += ac.tgt; j += ",\"d\":"; j += ac.d;
+  j += ",\"hyst\":"; j += ac.hyst; j += ",\"hold\":"; j += ac.hold; j += ",\"hrs\":"; j += ac.hrs;
+  j += ",\"from\":"; j += ac.from; j += ",\"to\":"; j += ac.to;
+  j += "}}";
   sendJson(j);
 }
 
@@ -1186,6 +1300,24 @@ void handleConfigSet() {
     if (server.hasArg("fanw") && splitCsv(server.arg("fanw"), f, 11) == 11)
       for (int i = 0; i < 11; i++) cfg.fanW[i] = constrain(f[i].toInt(), 0, 2000);
     cfg.flow[0] = cfg.fanW[0] = 0;
+  } else if (sec == "ac") {   // integers only; stored under its own key, not in cfg
+    auto num = [](const char *k, int lo, int hi, int def) {
+      String v = server.arg(k); v.trim();
+      return v.length() ? constrain((int)lroundf(v.toFloat()), lo, hi) : def;
+    };
+    AcCfg a = ac;
+    a.on = server.arg("on").toInt() ? 1 : 0;
+    a.tgt = num("tgt", 10, 35, 23); a.d = num("d", 0, 15, 2); a.hyst = num("hyst", 0, 5, 1);
+    a.hold = num("hold", 0, 240, 5);
+    a.hrs = server.arg("hrs").toInt() ? 1 : 0;
+    a.from = num("from", 0, 1439, 1320); a.to = num("to", 0, 1439, 480);
+    if (a.hrs && a.from == a.to) { sendErr("start and end time must differ"); return; }
+    ac = a;
+    saveAc();
+    addLog("Air cond saved (%s, desired %d °C, delta %d °C)", ac.on ? "enabled" : "disabled", ac.tgt, ac.d);
+    acTick();
+    sendOk();
+    return;
   } else { sendErr("unknown section"); return; }
   saveConfig();
   sendOk();
@@ -1281,7 +1413,7 @@ void handleCsv() {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "text/csv", "");
   String chunk; chunk.reserve(2600);
-  chunk = "time,RA_C,OA_C,FR_C,SA_C,minutes,heat_kept_Wh,heat_lost_Wh,fan_Wh\r\n";
+  chunk = "time,RA_C,FR_C,OA_C,SA_C,minutes,heat_kept_Wh,heat_lost_Wh,fan_Wh\r\n";
   SampleCb row = [&](const Sample &s) {
     struct tm tm; localTm(s.t, tm);
     char b[160];
@@ -1348,9 +1480,10 @@ void handleRelays() {
             "<body style='font-family:Arial;max-width:700px;margin:25px auto;padding:10px'>"
             "<h2>HKL-EA8 Relay Control</h2>");
   for (int ch = 0; ch < 8; ch++) {
-    page += "<p>Relay " + String(ch + 1) + " — <b>" + (relayState[ch] ? "ON" : "OFF") +
-            "</b> &nbsp; <a href='/relay?ch=" + String(ch) + "&state=1'>ON</a> &nbsp; "
-            "<a href='/relay?ch=" + String(ch) + "&state=0'>OFF</a></p>";
+    page += "<p>Relay " + String(ch + 1) + " — <b>" + (relayState[ch] ? "ON" : "OFF") + "</b> &nbsp; ";
+    if (ch == AC_RELAY && ac.on) page += "<i>controlled by air cond (Automation tab)</i></p>";
+    else page += "<a href='/relay?ch=" + String(ch) + "&state=1'>ON</a> &nbsp; "
+                 "<a href='/relay?ch=" + String(ch) + "&state=0'>OFF</a></p>";
   }
   page += F("<hr><p><a href='/'>Back to HRV control</a></p></body></html>");
   server.send(200, "text/html", page);
@@ -1362,8 +1495,8 @@ void handleRelay() {
     server.send(400, "text/plain", "Invalid relay channel or state");
     return;
   }
-  relayState[ch] = state == 1;
-  relays.digitalWrite(ch, relayState[ch] ? RELAY_ON : RELAY_OFF);
+  if (ch == AC_RELAY && ac.on) { server.send(409, "text/plain", "Relay 1 is controlled by air cond. Disable air cond in Automation first."); return; }
+  setRelay(ch, state == 1);
   server.sendHeader("Location", "/relays");
   server.send(303, "text/plain", "Relay updated");
 }
@@ -1422,6 +1555,7 @@ void loop() {
   if (pollNow || millis() - lastPollMs >= cfg.pollSec * 1000UL) {
     pollNow = false;
     pollUnit();
+    acTick();
   }
   restoreTick();
   minuteTick();

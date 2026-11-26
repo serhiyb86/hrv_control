@@ -122,9 +122,9 @@ input[type=number]{width:80px}
 <section class="tab on" id="dash">
   <div class="temps" style="margin-bottom:12px">
     <div class="t"><div class="lbl">Return air (RA) <span class="reg">R12</span></div><div class="big" id="tRA">--</div><div class="mut">from the rooms</div></div>
-    <div class="t"><div class="lbl">Outside air (OA) <span class="reg">R13</span></div><div class="big" id="tOA">--</div><div class="mut">from outdoors</div></div>
+    <div class="t"><div class="lbl">Fresh air (FR) <span class="reg">R15</span></div><div class="big" id="tFR">--</div><div class="mut">intake from outdoors</div></div>
     <div class="t"><div class="lbl">Supply air (SA) <span class="reg">R14</span></div><div class="big" id="tSA">--</div><div class="mut">into the rooms</div></div>
-    <div class="t"><div class="lbl">Fresh/exhaust air (FR) <span class="reg">R15</span></div><div class="big" id="tFR">--</div><div class="mut">out to outdoors</div></div>
+    <div class="t"><div class="lbl">Exhaust air (OA) <span class="reg">R13</span></div><div class="big" id="tOA">--</div><div class="mut">out to outdoors</div></div>
   </div>
   <div class="grid">
     <div class="card">
@@ -135,6 +135,18 @@ input[type=number]{width:80px}
         <div class="mut" id="modeTxt"></div></div>
       </div>
       <div class="row mut" style="margin-top:12px">External on/off input <span class="reg">R16</span>: <b id="extIn">--</b></div>
+    </div>
+    <div class="card">
+      <h3>Air cond <span class="reg">relay 1 · R18 B1</span></h3>
+      <div class="big" id="acBig" style="font-size:24px">--</div>
+      <div class="mut" id="acWhy"></div>
+      <div class="flags" style="margin-top:8px" id="acRelay"></div>
+      <table style="margin-top:8px">
+        <tr><td>Cools when</td><td id="acTgt">--</td></tr>
+        <tr><td>Relay state for</td><td id="acSince">--</td></tr>
+      </table>
+      <div class="note warn" id="acWarn" style="display:none"></div>
+      <div class="row"><a href="#" onclick="show('auto');$('acCard').scrollIntoView({behavior:'smooth'});return false">Settings</a></div>
     </div>
     <div class="card" style="grid-column:span 2;min-width:0">
       <h3>Fan speed <span><span class="reg">R10</span> <span class="reg">R11</span></span></h3>
@@ -175,8 +187,9 @@ input[type=number]{width:80px}
         <tr><td>Heat lost</td><td id="liveLost">--</td></tr>
         <tr><td>Fans</td><td id="liveFan">--</td></tr>
         <tr><td>Exhaust side</td><td id="effExh">--</td></tr>
+        <tr><td>Free cooling</td><td id="liveCool">--</td></tr>
       </table>
-      <div class="mut" style="margin-top:6px">Efficiency = (SA − OA) / (RA − OA), supply side. Exhaust side = (RA − FR) / (RA − OA). Power uses the airflow table in Energy.</div>
+      <div class="mut" style="margin-top:6px">Efficiency = (SA − FR) / (RA − FR), supply side. Exhaust side = (RA − OA) / (RA − FR). Free cooling = 0.335 × supply airflow × (RA − FR) while the bypass is open. Power uses the airflow table in Energy.</div>
     </div>
   </div>
 </section>
@@ -197,7 +210,7 @@ input[type=number]{width:80px}
     <div class="card">
       <h3>Bypass preview</h3>
       <div id="bpPreview"></div>
-      <div class="bypass-vis">Bypass opens when X ≤ OA &lt; X + Y (manual p.19).</div>
+      <div class="bypass-vis">Bypass opens when X ≤ FR (outdoor) &lt; X + Y (manual p.19). Not used when SW4-2 is ON (bypass by dry contact, see Air cond in Automation).</div>
     </div>
     <div class="card">
       <h3>Restricted <span class="reg">R8 / R21</span></h3>
@@ -225,8 +238,29 @@ input[type=number]{width:80px}
       <div class="row"><button class="btn pri" onclick="saveRst()">Save</button></div>
     </div>
 
+    <div class="card" id="acCard">
+      <h3>Air cond (free cooling by bypass)</h3>
+      <div class="row"><label class="switch"><input type="checkbox" id="acOn"><span class="slider"></span></label> <b>Enabled</b></div>
+      <div class="row" id="acAutoSt"></div>
+      <div class="mut">Closes relay 1 (bypass dry contact) when the room is too warm and the outdoor air is cool enough. Fresh air then goes straight into the rooms past the heat exchanger.
+        Air cond wins over the weekly timer: while cooling is needed, the unit stays on even if the timer says OFF (and is switched on if it is off). When cooling is no longer needed, the timer is in charge again.
+        Turning the unit OFF by hand stops cooling until the next timer ON or a manual ON.</div>
+      <table style="margin-top:8px">
+        <tr><td>Desired room temperature (RA)</td><td><input type="number" id="acTgtIn" step="1" min="10" max="35"> °C</td></tr>
+        <tr><td>Outdoor (FR) cooler than room by at least</td><td><input type="number" id="acD" step="1" min="0" max="15"> °C</td></tr>
+        <tr><td>Hysteresis</td><td><input type="number" id="acHyst" step="1" min="0" max="5"> °C</td></tr>
+        <tr><td>Min hold time</td><td><input type="number" id="acHold" min="0" max="240"> min</td></tr>
+        <tr><td><label><input type="checkbox" id="acHrs" onchange="acHrsUi()"> Only between</label></td>
+          <td style="white-space:nowrap"><input type="time" id="acFrom"> – <input type="time" id="acTo"></td></tr>
+      </table>
+      <div class="mut" style="margin-top:6px">ON: RA &gt; desired and FR ≤ RA − delta. OFF: RA ≤ desired − hysteresis or FR &gt; RA − delta + hysteresis.
+        The relay opens on a sensor error (R20), when the link is lost, and after a controller restart.</div>
+      <div class="note warn">Needs DIP switch SW4-2 = ON (bypass by dry contact). With it, the unit runs the fans at high speed while the bypass is open and does not use its own bypass window (R2/R3). Relay 1 is locked on the Relays page while this is enabled.</div>
+      <div class="row"><button class="btn pri" onclick="saveAc()">Save</button></div>
+    </div>
+
     <div class="card" style="grid-column:span 2;min-width:0">
-      <h3>Fan control by outside (OA) / return (RA) temperature</h3>
+      <h3>Fan control by outdoor (FR) / return (RA) temperature</h3>
       <div class="row"><label class="switch"><input type="checkbox" id="rulesOn"><span class="slider"></span></label> <b>Enabled</b>
         <span class="mut">— speeds change only when another rule takes over, so a manual change stays until then. Only while the unit is ON.</span></div>
       <div class="mut" style="margin:6px 0">Rules are checked top to bottom; the first match sets the speeds. Ranges are “from ≤ value &lt; to”, an empty field means any.</div>
@@ -298,10 +332,11 @@ input[type=number]{width:80px}
       </table>
       <div class="row"><button class="btn pri" onclick="saveEnergy()">Save</button></div>
       <div class="mut" style="margin-top:8px">Calculated every poll from the four temperatures and the current fan speeds (R10/R11):<br>
-        kept = 0.335 × supply airflow × (SA − OA)<br>
+        kept = 0.335 × supply airflow × (SA − FR)<br>
         lost = 0.335 × supply airflow × (RA − SA)<br>
-        kept + lost is what heating the outside air to room temperature would take without the HRV.
-        Counted only while heating (OA below RA), not during defrost (R18 B3) or with the bypass open (R18 B1).
+        kept + lost is what heating the outdoor air (FR) to room temperature would take without the HRV.
+        Counted only while heating (FR below RA), not during defrost (R18 B3) or with the bypass open (R18 B1).
+        Free cooling while the bypass is open is shown live on the Dashboard; it is not stored in the history.
         Only sensible heat; moisture recovery is not counted, so real savings are a bit higher.</div>
     </div>
     <div class="card">
@@ -423,14 +458,18 @@ input[type=number]{width:80px}
 const SPD=[0,2,3,5,8,9,10,11,12,13,14],lv=c=>SPD.indexOf(c),T0=Date.now(),FMT=['8N1','8E1','8O1','8N2'];
 const sx=v=>v>32767?v-65536:v,pad=n=>String(n).padStart(2,'0');
 // registers R0..R22 (R0 automatic reloading, R1 heater connection); R2/R3/R5 in °C (R5 = -1 stored as uint16), R12..R15 = °C + 40
-const R=[1,0,19,3,30,65535,10,0x66,14,1,9,9,62,44,57,47,0,0,4,0,0,4,0];
+// R12 RA 22 °C, R13 OA (exhaust) 9 °C, R14 SA 17 °C, R15 FR (outdoor intake) 4 °C
+const R=[1,0,19,3,30,65535,10,0x66,14,1,9,9,62,49,57,44,0,0,4,0,0,4,0];
 const C={link:{addr:14,baud:4800,fmt:0,poll:2,to:300,wfc:6},rst:{on:1,delay:10},
   rules:{on:0,hyst:1,hold:5,fb:0,list:[[1,null,-15,null,null,0,3,2,3],[1,null,-5,null,null,0,3,3,4],
     [1,null,null,25,null,1,3,8,8],[1,null,null,24,null,2,0,2,2],[1,null,null,null,null,0,3,5,5]]},
   tmr:{on:0,rev:0,d:[0,1,2,3,4,5,6].map(d=>d<5?[[1,390,540],[1,1020,1380]]:[[1,480,1410],[0,0,0]])},
-  en:{hp:4.32,ep:4.32,flow:[0,35,70,105,140,175,210,245,280,315,350],fanw:[0,8,11,15,20,27,36,48,63,85,112]}};
+  en:{hp:4.32,ep:4.32,flow:[0,35,70,105,140,175,210,245,280,315,350],fanw:[0,8,11,15,20,27,36,48,63,85,112]},
+  ac:{on:1,tgt:21,d:2,hyst:1,hold:5,hrs:0,from:1320,to:480}};
 const des={on:1,s:5,e:5};
 let okc=1532,errc=4,lastErr='timeout',lastErrAt=T0-14*60000,lastPoll=T0,lastRst=0,act=-2,tmrLast='',manualAt=0,cleared=0,lastKey=-1;
+// air cond runtime (mirrors acTick in the firmware): st 0 off, 1 waiting, 2 cooling, 3 blocked
+const AC={st:0,why:'',relay:0,since:T0,lastSw:0,manOff:0,turnedOn:0};
 const LOG=[];
 function addLog(m){const d=new Date();LOG.push(`${pad(d.getDate())}.${pad(d.getMonth()+1)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}  ${m}`);if(LOG.length>60)LOG.shift()}
 const tp=r=>R[r]-40;
@@ -442,10 +481,11 @@ function setSpeeds(s,e,src){s=Math.max(0,Math.min(10,s));e=Math.max(0,Math.min(1
 
 // ---- live energy (mirrors energySample)
 function live(){const on=R[9]===1,ls=on?Math.max(0,lv(R[10])):0,le=on?Math.max(0,lv(R[11])):0,qs=C.en.flow[ls],qe=C.en.flow[le];
-  const ra=tp(12),oa=tp(13),sa=tp(14),st=R[18],def=!!(st&8),byp=!!(st&2),ok=!(R[20]&20);
-  const heating=on&&ok&&!def&&!byp&&oa<ra&&qs>0;
-  return{kept:heating?Math.round(Math.max(0,.335*qs*(sa-oa))):0,lost:heating?Math.round(Math.max(0,.335*qs*(ra-sa))):0,
-    fan:Math.round(on?(C.en.fanw[ls]+C.en.fanw[le])/2:0),heating}}
+  const ra=tp(12),fr=tp(15),sa=tp(14),st=R[18],def=!!(st&8),byp=!!(st&2),ok=!(R[20]&20);
+  const heating=on&&ok&&!def&&!byp&&fr<ra&&qs>0;
+  return{kept:heating?Math.round(Math.max(0,.335*qs*(sa-fr))):0,lost:heating?Math.round(Math.max(0,.335*qs*(ra-sa))):0,
+    fan:Math.round(on?(C.en.fanw[ls]+C.en.fanw[le])/2:0),heating,
+    cool:on&&ok&&byp&&qs>0?Math.round(Math.max(0,.335*qs*(ra-fr))):0}}
 
 // ---- temperature rules (mirrors ruleMatch / evalRules; min hold time is not simulated)
 function match(r,o,rm,h){const n=v=>v!=null;
@@ -453,7 +493,7 @@ function match(r,o,rm,h){const n=v=>v!=null;
   if(n(r[3])&&rm<r[3]-h)return false;if(n(r[4])&&rm>=r[4]+h)return false;
   if(r[5]==1&&!(o<=rm-(r[6]-h)))return false;if(r[5]==2&&!(o>rm-h))return false;return true}
 function evalRules(){if(!C.rules.on||R[9]!==1){act=-2;return}
-  const o=tp(13),rm=tp(12),L=C.rules.list;let c=L.findIndex(r=>r[0]&&match(r,o,rm,0));
+  const o=tp(15),rm=tp(12),L=C.rules.list;let c=L.findIndex(r=>r[0]&&match(r,o,rm,0));
   if(act>=0&&act<L.length&&L[act][0]&&match(L[act],o,rm,C.rules.hyst)&&(c<0||c>=act))c=act;
   if(c==act)return;act=c;
   if(c>=0){const r=L[c];if(lv(R[10])!=r[7]||lv(R[11])!=r[8])setSpeeds(r[7],r[8],'Rule '+(c+1))}
@@ -461,10 +501,13 @@ function evalRules(){if(!C.rules.on||R[9]!==1){act=-2;return}
 
 // ---- weekly timer (mirrors timerSwitch / applyTimerNow / timerTick)
 function tmrSwitch(on,src){if(on){if(R[9]!==1)setPower(1,src);if(!C.rules.on&&(lv(R[10])!=des.s||lv(R[11])!=des.e))setSpeeds(des.s,des.e,src)}
-  else if(R[9]===1)setPower(0,src);const d=new Date();tmrLast=`${pad(d.getHours())}:${pad(d.getMinutes())} ${src} ${on?'ON':'OFF'}`}
-function applyTimerNow(src){if(!C.tmr.on)return;const d=new Date(),m=d.getHours()*60+d.getMinutes(),day=(d.getDay()+6)%7;
-  const prev=C.tmr.d[(day+6)%7];
-  tmrSwitch(C.tmr.d[day].some(p=>p[0]&&(p[2]>p[1]?p[1]<=m&&m<p[2]:p[1]<=m))||prev.some(p=>p[0]&&p[2]<p[1]&&m<p[2]),src);manualAt=0}
+  else if(AC.relay){addLog(`${src} OFF skipped: air cond is cooling`)}   // air cond wins over the timer
+  else if(R[9]===1)setPower(0,src);
+  if(on)AC.manOff=0;
+  const d=new Date();tmrLast=`${pad(d.getHours())}:${pad(d.getMinutes())} ${src} ${on?'ON':'OFF'}${!on&&AC.relay?' (kept on: air cond cooling)':''}`}
+function tmrWant(){const d=new Date(),m=d.getHours()*60+d.getMinutes(),day=(d.getDay()+6)%7,prev=C.tmr.d[(day+6)%7];
+  return C.tmr.d[day].some(p=>p[0]&&(p[2]>p[1]?p[1]<=m&&m<p[2]:p[1]<=m))||prev.some(p=>p[0]&&p[2]<p[1]&&m<p[2])}
+function applyTimerNow(src){if(!C.tmr.on)return;tmrSwitch(tmrWant(),src);manualAt=0}
 function timerTick(){if(!C.tmr.on)return;const d=new Date(),m=d.getHours()*60+d.getMinutes(),day=(d.getDay()+6)%7,key=day*1440+m;
   if(key!=lastKey){lastKey=key;for(const p of C.tmr.d[day]){if(!p[0])continue;
     if(p[1]==m){tmrSwitch(true,'Timer');manualAt=0}if(p[2]>p[1]&&p[2]==m){tmrSwitch(false,'Timer');manualAt=0}}
@@ -477,7 +520,30 @@ function state(){const now=Date.now();
     link:{ok:true,ago:Math.floor((now-lastPoll)/1000),okc,errc,err:lastErr,errAgo:lastErrAt?Math.floor((now-lastErrAt)/1000):-1,
       echo:false,single:false,addr:C.link.addr,baud:C.link.baud,fmt:FMT[C.link.fmt]},
     r:R.slice(),live:live(),des:{valid:1,on:des.on,s:des.s,e:des.e},rst:{last:lastRst,pend:-1},rule:{on:C.rules.on,act},
-    tmr:{on:C.tmr.on,manual:manualAt?Math.floor((now-manualAt)/1000):-1,last:tmrLast}}}
+    tmr:{on:C.tmr.on,manual:manualAt?Math.floor((now-manualAt)/1000):-1,last:tmrLast},
+    ac:{on:C.ac.on,st:AC.st,why:AC.why,relay:AC.relay,ago:Math.floor((now-AC.since)/1000)}}}
+
+// ---- air cond (mirrors acTick): relay 1 = bypass dry contact; the timer does not stop cooling
+const f1=v=>(Math.round(v*10)/10).toString();
+function acRelay(on,src){if(AC.relay==on)return;AC.relay=on;AC.since=AC.lastSw=Date.now();addLog(`${src}: relay 1 ${on?'closed (bypass on)':'open (bypass off)'}`)}
+function acDone(src){   // cooling ended: hand control back to the timer (or undo our own switch-on)
+  if(R[9]===1&&(C.tmr.on?!tmrWant():AC.turnedOn))setPower(0,src);AC.turnedOn=0}
+function acTick(){const A=C.ac,now=Date.now();
+  const stop=(st,why,src)=>{AC.st=st;AC.why=why;if(AC.relay){acRelay(0,src);acDone(src)}};
+  if(!A.on)return stop(0,'disabled','Air cond disabled');
+  if(R[20]&20)return stop(3,'temperature sensor error (R20)','Air cond: sensor error');
+  if(AC.manOff)return stop(1,'unit switched off by hand — waits for the next timer ON or a manual ON','Air cond');
+  if(A.hrs){const d=new Date(),m=d.getHours()*60+d.getMinutes(),inH=A.from<A.to?m>=A.from&&m<A.to:m>=A.from||m<A.to;
+    if(!inH)return stop(1,`outside allowed hours ${hm(A.from)}–${hm(A.to)}`,'Air cond: end of allowed hours')}
+  const ra=tp(12),fr=tp(15),h=A.hyst,lim=ra-A.d+(AC.relay?h:0);   // outdoor limit that applies now
+  const need=AC.relay?!(ra<=A.tgt-h||fr>lim):(ra>A.tgt&&fr<=lim);
+  const left=AC.lastSw?A.hold*60000-(now-AC.lastSw):0;
+  let why=need?`room ${f1(ra)} °C, desired ${A.tgt} °C · outdoor ${f1(fr)} °C (needs ≤ ${f1(lim)} °C)`:
+    ra<=A.tgt-(AC.relay?h:0)?`room ${f1(ra)} °C is not above ${A.tgt} °C`:`outdoor ${f1(fr)} °C is not cool enough (needs ≤ ${f1(lim)} °C)`;
+  if(need!=!!AC.relay&&left>0){AC.st=AC.relay?2:1;AC.why=why+` · min hold time, can switch in ${Math.ceil(left/60000)} min`;return}
+  if(need&&!AC.relay){if(R[9]!==1){setPower(1,'Air cond');AC.turnedOn=1}acRelay(1,'Air cond')}
+  if(!need&&AC.relay){acRelay(0,'Air cond');acDone('Air cond done')}
+  AC.st=need?2:1;AC.why=why}
 
 // ---- /api/config POST (mirrors handleConfigSet)
 const numOrNull=s=>s==null||String(s).trim()===''?null:+s;
@@ -501,6 +567,11 @@ function configSet(q){const s=q.section;
       D.push(day)}
     C.tmr.d=D;C.tmr.on=+q.on?1:0;C.tmr.rev=Math.max(0,Math.min(1440,+q.rev||0));lastKey=-1;
     addLog(`Weekly timer saved (${C.tmr.on?'enabled':'disabled'})`);applyTimerNow('Timer (saved)')}
+  else if(s=='ac'){const n=(k,lo,hi,d)=>{const v=numOrNull(q[k]);return v==null||isNaN(v)?d:Math.max(lo,Math.min(hi,Math.round(v)))};   // integers only
+    const fr=n('from',0,1439,1320),to=n('to',0,1439,480),hrs=+q.hrs?1:0;
+    if(hrs&&fr==to)return{ok:false,err:'start and end time must differ'};
+    Object.assign(C.ac,{on:+q.on?1:0,tgt:n('tgt',10,35,23),d:n('d',0,15,2),hyst:n('hyst',0,5,1),hold:n('hold',0,240,5),hrs,from:fr,to});
+    addLog(`Air cond saved (${C.ac.on?'enabled':'disabled'}, desired ${C.ac.tgt} °C, delta ${C.ac.d} °C)`);acTick()}
   else if(s=='en'){if(numOrNull(q.hp)!=null)C.en.hp=+q.hp;if(numOrNull(q.ep)!=null)C.en.ep=+q.ep;
     for(const k of ['flow','fanw'])if(q[k]){const f=q[k].split(',');if(f.length==11)C.en[k]=f.map(v=>Math.max(0,Math.min(2000,Math.trunc(+v||0))))}
     C.en.flow[0]=C.en.fanw[0]=0}
@@ -537,7 +608,7 @@ function sample(t){const d=new Date(t),doy=(t-new Date(d.getFullYear(),0,1))/864
   const out=8.5-12.5*Math.cos(2*Math.PI*(doy-20)/365)+3.5*Math.sin(2*Math.PI*(h-9)/24)+noise;
   const room=out<18?22+0.4*Math.sin(2*Math.PI*(h-15)/24):Math.min(27,22+(out-18)*0.45);
   const sp=(h<7||h>=23)?2:5,q=C.en.flow[sp],bypass=out>=19&&out<22,heating=out<room&&!bypass;
-  const eff=bypass?0.05:0.74-0.006*sp,sup=out+eff*(room-out),exh=room-eff*(room-out);  // sup = SA, exh = FR
+  const eff=bypass?0.05:0.74-0.006*sp,sup=out+eff*(room-out),exh=room-eff*(room-out);  // sup = SA, exh = OA (exhaust), out = FR (outdoor)
   const kept=heating?0.335*q*(sup-out):0,lost=heating?Math.max(0,0.335*q*(room-sup)):0;
   return{out,room,exh,sup,kept,lost,fan:C.en.fanw[sp]}}
 function history(range){
@@ -566,7 +637,7 @@ function route(p,m,q){
   if(p=='/api/state')return state();
   if(p=='/api/log')return LOG.slice();
   if(p=='/api/config')return m=='GET'?JSON.parse(JSON.stringify(C)):configSet(q);
-  if(p=='/api/power'){setPower(+q.on==1,'Web');if(C.tmr.on)manualAt=Date.now();return{ok:true}}
+  if(p=='/api/power'){setPower(+q.on==1,'Web');AC.manOff=+q.on==1?0:1;acTick();if(C.tmr.on)manualAt=Date.now();return{ok:true}}
   if(p=='/api/speed'){setSpeeds(+q.s||0,+q.e||0,'Web');if(C.tmr.on)manualAt=Date.now();return{ok:true}}
   if(p=='/api/write')return regWrite(q);
   if(p=='/api/addr'){const v=+q.v;if(!(v>=1&&v<=16))return{ok:false,err:'address must be 1..16'};
@@ -587,15 +658,18 @@ document.addEventListener('click',e=>{
   if(e.target.closest('a[href="/relays"]')){e.preventDefault();e.stopPropagation();toast('(mockup) opens the plain relay page /relays')}
   const b=e.target.closest('button');
   if(b&&/\/api\/csv/.test(b.getAttribute('onclick')||'')){e.stopPropagation();const h=history(EV.range);
-    const rows=['time,RA_C,OA_C,FR_C,SA_C'].concat(h.temp.filter(x=>x[1]!=null).map(x=>
+    const rows=['time,RA_C,FR_C,OA_C,SA_C'].concat(h.temp.filter(x=>x[1]!=null).map(x=>
       [new Date(x[0]*1000).toISOString().slice(0,16).replace('T',' ')].concat(x.slice(1).map(v=>(v/10).toFixed(1))).join(',')));
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([rows.join('\r\n')],{type:'text/csv'}));a.download=`hrv_${h.range}.csv`;a.click()}},true);
 
 // ---- simulated unit: poll every 2 s, small temperature noise, occasional defrost
 addLog('Started: http://192.168.1.200/  (Modbus addr 14, 4800 8N1)');addLog('Link up: addr 14, 4800 8N1');addLog('Time synced (NTP)');
 setInterval(()=>{lastPoll=Date.now();okc+=2;
-  R[12]=62+(Math.random()<.2?1:0);R[13]=44+(Math.random()<.3?-1:0);R[14]=57+(Math.random()<.3?1:0);R[15]=47+(Math.random()<.3?1:0);
-  if(!(R[18]&8)&&Math.random()<.01){R[18]|=8;setTimeout(()=>R[18]&=~8,20000)}evalRules();timerTick()},2000);
+  const byp=AC.relay&&R[9]===1;   // SW4-2 ON: the unit follows relay 1 and reports it in R18 B1/B2
+  R[18]=(R[18]&~6)|(byp?2:4);
+  R[12]=62+(Math.random()<.2?1:0);R[15]=44+(Math.random()<.3?1:0);
+  R[14]=byp?R[15]+1:57+(Math.random()<.3?1:0);R[13]=byp?R[12]-1:49+(Math.random()<.3?-1:0);
+  if(!byp&&!(R[18]&8)&&Math.random()<.01){R[18]|=8;setTimeout(()=>R[18]&=~8,20000)}evalRules();timerTick();acTick()},2000);
 })();
 // ===================== END MOCK BACKEND =====================
 </script>
@@ -616,7 +690,7 @@ const META={
  6:{n:'Defrost duration',u:'min',min:2,max:20,def:10},
  7:{n:'CO₂ setpoint',u:'ppm',min:392,max:1960,def:1000,co2:1},
  8:{n:'Modbus address'},9:{n:'Unit on/off'},10:{n:'Supply fan speed'},11:{n:'Exhaust fan speed'},
- 12:{n:'Return air (RA) temperature'},13:{n:'Outside air (OA) temperature'},14:{n:'Supply air (SA) temperature'},15:{n:'Fresh/exhaust air (FR) temperature'},
+ 12:{n:'Return air (RA) temperature'},13:{n:'Exhaust air (OA) temperature'},14:{n:'Supply air (SA) temperature'},15:{n:'Fresh air (FR) temperature'},
  16:{n:'External on/off input'},17:{n:'CO₂ on/off signal'},18:{n:'Status bits'},19:{n:'Electric heater stage'},
  20:{n:'Error bits'},21:{n:'Model selection'},22:{n:'Defrost mode'}};
 let S=null,CFG=null,R=[],RULES=[],TIMER=[],TAB='dash';
@@ -697,25 +771,44 @@ const deg=v=>`${fT(v)}<span class="unit"> °C</span>`;
 function renderDash(){
   $('tRA').innerHTML=deg(temp(12));$('tOA').innerHTML=deg(temp(13));$('tSA').innerHTML=deg(temp(14));$('tFR').innerHTML=deg(temp(15));
   $('pwr').classList.toggle('on',unitOn());$('pwrTxt').textContent=R[9]==null?'--':unitOn()?'ON':'OFF';
-  $('modeTxt').textContent='Speed: '+(S.rule.on?'temperature rules'+(S.rule.act>=0?` (rule ${S.rule.act+1})`:''):'manual')+(S.tmr.on?' · timer on':'');
+  $('modeTxt').textContent='Speed: '+(S.rule.on?'temperature rules'+(S.rule.act>=0?` (rule ${S.rule.act+1})`:''):'manual')+(S.tmr.on?' · timer on':'')+(S.ac&&S.ac.st==2?' · air cond cooling':'');
   $('extIn').textContent=R[16]==null?'--':R[16]?'closed':'open';
   renderFans();
   const b=R[18];
   $('flags').innerHTML=b==null?'--':(b&1?flag('FIRE ALARM','err'):flag('Fire alarm: no'))+
     (b&2?flag('Bypass OPEN','on'):'')+(b&4?flag('Bypass closed'):'')+(b&8?flag('Defrosting','warn'):flag('Defrost: idle'));
-  $('bpWin').textContent=R[2]==null?'--':`${R[2]} – ${R[2]+R[3]} °C (OA now ${fT(temp(13))} °C)`;
+  $('bpWin').textContent=R[2]==null?'--':`${R[2]} – ${R[2]+R[3]} °C (FR now ${fT(temp(15))} °C)`;
   $('heater').textContent=R[19]??'--';$('dMode').textContent=R[22]??'--';$('co2sig').textContent=R[17]==null?'--':R[17]?'on':'off';
   const e=R[20],E=[[4,'Outdoor sensor'],[8,'Defrost sensor'],[16,'Room sensor'],[32,'EEPROM']];
   $('errs').innerHTML=e==null?'--':e?E.filter(x=>e&x[0]).map(x=>flag(x[1],'err')).join('')+(e&~60?flag('Other bits: 0x'+e.toString(16),'err'):''):flag('No errors','on');
-  const ra=temp(12),oa=temp(13),sa=temp(14),fr=temp(15),dT=ra!=null&&oa!=null&&Math.abs(ra-oa)>=2&&unitOn();
-  if(dT&&sa!=null){const ef=Math.round(100*(sa-oa)/(ra-oa));
+  const ra=temp(12),oa=temp(13),sa=temp(14),fr=temp(15),byp=!!(b&2),dT=ra!=null&&fr!=null&&Math.abs(ra-fr)>=2&&unitOn()&&!byp;
+  if(dT&&sa!=null){const ef=Math.round(100*(sa-fr)/(ra-fr));
     $('eff').innerHTML=ef+'<span class="unit"> %</span>';$('effBar').style.width=Math.max(0,Math.min(100,ef))+'%'}
-  else{$('eff').innerHTML='--<span class="unit"> %</span>';$('effBar').style.width='0'}
-  $('effExh').textContent=dT&&fr!=null?Math.round(100*(ra-fr)/(ra-oa))+' %':'--';
+  else{$('eff').innerHTML=(byp?'bypass':'--')+'<span class="unit">'+(byp?'':' %')+'</span>';$('effBar').style.width='0'}
+  $('effExh').textContent=dT&&oa!=null?Math.round(100*(ra-oa)/(ra-fr))+' %':'--';
   const lv=S.live,kw=w=>w==null?'--':w>=1000?(w/1000).toFixed(2)+' kW':Math.round(w)+' W';
   $('liveKept').textContent=lv.heating?kw(lv.kept):'0 W (not heating)';$('liveLost').textContent=lv.heating?kw(lv.lost):'—';
   $('liveFan').textContent=kw(lv.fan);
+  $('liveCool').textContent=lv.cool>0?kw(lv.cool):'— (bypass closed)';
+  renderAcDash();
 }
+
+// ---------- air cond status (Dashboard card + Automation card) ----------
+const AC_ST=['Off','Waiting','Cooling','Blocked'],AC_CLS=['','','on','err'];
+function acStatus(){const a=S.ac;if(!a)return null;
+  let warn='';
+  // the unit reports the bypass in R18 B1; if the relay has been closed for a minute and the unit does not confirm, say so
+  if(a.relay&&a.ago>=60&&R[18]!=null&&!(R[18]&2))warn='Relay 1 is closed but the unit does not report the bypass open (R18 B1). Check SW4-2 and the wiring.';
+  if(!a.relay&&a.ago>=60&&R[18]!=null&&(R[18]&2))warn='The unit reports the bypass open although relay 1 is open (automatic bypass? check SW4-2).';
+  return{txt:AC_ST[a.st]||'--',cls:AC_CLS[a.st]||'',why:a.why,warn}}
+function renderAcDash(){const s=acStatus();if(!s)return;const a=S.ac;
+  $('acBig').textContent=s.txt;$('acBig').style.color=a.st==2?'var(--acc)':a.st==3?'var(--err)':'';
+  $('acWhy').textContent=s.why||'';
+  $('acRelay').innerHTML=a.relay?flag('Relay 1 closed · bypass on','on'):flag('Relay 1 open');
+  $('acSince').textContent=a.ago>=0?dur(a.ago):'—';
+  $('acTgt').textContent=CFG&&CFG.ac?`room > ${CFG.ac.tgt} °C, FR ≤ RA − ${CFG.ac.d} °C`:'--';
+  $('acWarn').style.display=s.warn?'block':'none';$('acWarn').textContent=s.warn;
+  $('acAutoSt').innerHTML=flag(s.txt,s.cls)+(s.why?` <span class="mut">${s.why}</span>`:'')}
 
 // ---------- unit settings ----------
 const toDisp=(r,v)=>META[r].co2?Math.round(v*9.8):s16(v);
@@ -745,7 +838,7 @@ async function applySettings(){const q={},bad=[];
   $('setMsg').textContent=j.ok?`${(j.res||[]).length} register(s) written and verified`:
     'Failed: '+(failed.length?failed.map(x=>`R${x.r} (${x.err})`).join(', '):j.err)}
 function restoreDefaults(){for(const r of [2,3,4,5,6,7]){$('in'+r).value=META[r].def;markChg(r)}}
-function bpPreview(){const X=+$('in2').value,Y=+$('in3').value,o=temp(13);
+function bpPreview(){const X=+$('in2').value,Y=+$('in3').value,o=temp(15);
   $('bpPreview').innerHTML=`<div class="big" style="font-size:24px">${X} – ${X+Y} °C</div>`+
    (o==null?'':`<div class="mut">Outdoor now ${fT(o)} °C → bypass would be <b>${(o>=X&&o<X+Y)?'OPEN':'closed'}</b></div>`)}
 async function changeAddr(){const v=+$('newAddr').value;
@@ -761,11 +854,11 @@ async function saveRst(){done(await call('/api/config',{section:'rst',on:$('rstO
 function renderRules(){
   const opts=v=>[...Array(11).keys()].map(i=>`<option value="${i}" ${i==v?'selected':''}>${i==0?'stop':i}</option>`).join('');
   const num=(i,k,v)=>`<input type="number" step="0.5" style="width:58px" value="${v??''}" placeholder="any" onchange="RULES[${i}][${k}]=this.value===''?null:+this.value">`;
-  let h='<tr><th>#</th><th>OA °C from – to</th><th>RA °C from – to</th><th>OA vs RA</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
+  let h='<tr><th>#</th><th>FR °C from – to</th><th>RA °C from – to</th><th>FR vs RA</th><th>Supply</th><th>Exhaust</th><th>Active</th><th></th></tr>';
   RULES.forEach((r,i)=>{
     h+=`<tr data-i="${i}"><td>${i+1}</td><td style="white-space:nowrap">${num(i,1,r[1])} – ${num(i,2,r[2])}</td><td style="white-space:nowrap">${num(i,3,r[3])} – ${num(i,4,r[4])}</td>`+
      `<td><select onchange="RULES[${i}][5]=+this.value;renderRules()"><option value="0" ${r[5]==0?'selected':''}>any</option>`+
-     `<option value="1" ${r[5]==1?'selected':''}>OA cooler by ≥</option><option value="2" ${r[5]==2?'selected':''}>OA warmer</option></select>`+
+     `<option value="1" ${r[5]==1?'selected':''}>FR cooler by ≥</option><option value="2" ${r[5]==2?'selected':''}>FR warmer</option></select>`+
      (r[5]==1?` <input type="number" step="0.5" style="width:56px" value="${r[6]??3}" onchange="RULES[${i}][6]=+this.value"> °C`:'')+`</td>`+
      `<td><select onchange="RULES[${i}][7]=+this.value">${opts(r[7])}</select></td><td><select onchange="RULES[${i}][8]=+this.value">${opts(r[8])}</select></td>`+
      `<td><input type="checkbox" ${r[0]?'checked':''} onchange="RULES[${i}][0]=this.checked?1:0"></td>`+
@@ -818,7 +911,14 @@ async function loadConfig(){
   $('rulesOn').checked=!!c.rules.on;$('hyst').value=c.rules.hyst;$('hold').value=c.rules.hold;$('fb').value=c.rules.fb;
   RULES=c.rules.list.map(r=>r.slice());renderRules();
   $('timerOn').checked=!!c.tmr.on;$('rev').value=c.tmr.rev;TIMER=c.tmr.d.map(d=>d.map(p=>p.slice()));renderTimer();
-  $('evHeatP').value=c.en.hp;$('evElP').value=c.en.ep;renderFlowTbl(c.en.flow,c.en.fanw)}
+  $('evHeatP').value=c.en.hp;$('evElP').value=c.en.ep;renderFlowTbl(c.en.flow,c.en.fanw);
+  const a=c.ac;$('acOn').checked=!!a.on;$('acTgtIn').value=a.tgt;$('acD').value=a.d;$('acHyst').value=a.hyst;$('acHold').value=a.hold;
+  $('acHrs').checked=!!a.hrs;$('acFrom').value=hm(a.from);$('acTo').value=hm(a.to);acHrsUi()}
+function acHrsUi(){$('acFrom').disabled=$('acTo').disabled=!$('acHrs').checked}
+async function saveAc(){
+  if($('acHrs').checked&&$('acFrom').value==$('acTo').value){toast('Start and end time must differ');return}
+  if(done(await call('/api/config',{section:'ac',on:$('acOn').checked?1:0,tgt:Math.round($('acTgtIn').value),d:Math.round($('acD').value),hyst:Math.round($('acHyst').value),
+    hold:Math.round($('acHold').value),hrs:$('acHrs').checked?1:0,from:toMin($('acFrom').value),to:toMin($('acTo').value)}),'Air cond saved'))loadConfig()}
 async function saveLink(){
   if(!confirm('Apply new link settings? Wrong values stop communication with the unit.'))return;
   if(done(await call('/api/config',{section:'link',addr:$('lAddr').value,baud:$('lBaud').value,fmt:$('lFmt').value,
@@ -964,7 +1064,8 @@ function renderEnergy(){
   const d=EV.data,r=EV.range,F=EV_FMT[r],hp=+$('evHeatP').value,ep=+$('evElP').value;
   const rangeTxt={'24h':'last 24 h','7d':'last 7 days','30d':'last 30 days','12m':'last 12 months'}[r];
   if(!d){$('evTiles').replaceChildren();['evTemp','evEn','evEff'].forEach(id=>evEmpty($(id),'No data'));return}
-  const T=d.temp.map(x=>({t:x[0]*1000,ra:x[1]==null?null:x[1]/10,oa:x[2]==null?null:x[2]/10,fr:x[3]==null?null:x[3]/10,sa:x[4]==null?null:x[4]/10}));
+  // temp rows: [t, room = RA, out = FR (outdoor intake), exh = OA (exhaust), sup = SA], °C × 10
+  const T=d.temp.map(x=>({t:x[0]*1000,ra:x[1]==null?null:x[1]/10,fr:x[2]==null?null:x[2]/10,oa:x[3]==null?null:x[3]/10,sa:x[4]==null?null:x[4]/10}));
   const B=d.bars.map(x=>({t:x[0]*1000,kept:x[1]==null?null:x[1]/1000,lost:x[2]==null?null:x[2]/1000,fan:x[3]==null?null:x[3]/1000,out:x[4]==null?null:x[4]/10}));
   B.forEach(b=>b.eff=b.kept>0.005?100*b.kept/(b.kept+b.lost):null);
   const tot=B.reduce((a,b)=>({kept:a.kept+(b.kept||0),lost:a.lost+(b.lost||0),fan:a.fan+(b.fan||0)}),{kept:0,lost:0,fan:0});
@@ -977,17 +1078,17 @@ function renderEnergy(){
     evTile('Net saving',(tot.kept*hp-tot.fan*ep).toFixed(0),'₴',rangeTxt),
     evTile('Return on fan power',tot.fan>0.001?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
   $('evTempSub').textContent=r=='24h'?'10-minute averages':r=='7d'?'hourly averages':'daily averages';
-  const ts=[{name:'Return air (RA)',short:'RA',color:C1,v:T.map(x=>x.ra)},{name:'Outside air (OA)',short:'OA',color:C2,v:T.map(x=>x.oa)},
-            {name:'Supply air (SA)',short:'SA',color:C4,v:T.map(x=>x.sa)},{name:'Fresh/exhaust air (FR)',short:'FR',color:C3,v:T.map(x=>x.fr)}];
+  const ts=[{name:'Return air (RA)',short:'RA',color:C1,v:T.map(x=>x.ra)},{name:'Fresh air (FR)',short:'FR',color:C2,v:T.map(x=>x.fr)},
+            {name:'Supply air (SA)',short:'SA',color:C4,v:T.map(x=>x.sa)},{name:'Exhaust air (OA)',short:'OA',color:C3,v:T.map(x=>x.oa)}];
   evLegend('evTempLeg',ts);
   evLine($('evTemp'),{x:T.map(x=>x.t),series:ts,unit:'°',fmtX:F.tx,fmtTip:F.tt,endLabels:1,aria:'Temperatures, '+rangeTxt});
   const en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
   evLegend('evEnLeg',en.map(e=>({...e,box:1})));
   evBars($('evEn'),{x:B.map(b=>b.t),series:en,fmtX:F.bx,fmtTip:F.bt,aria:'Heat kept and lost, '+rangeTxt,
-    extra:i=>B[i].fan==null?[]:[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg OA',B[i].out==null?'—':B[i].out.toFixed(1)+' °C')]});
+    extra:i=>B[i].fan==null?[]:[evTipRow('transparent','Fan electricity',B[i].fan.toFixed(2)+' kWh'),evTipRow('transparent','Avg outdoor (FR)',B[i].out==null?'—':B[i].out.toFixed(1)+' °C')]});
   evLine($('evEff'),{x:B.map(b=>b.t),series:[{name:'Efficiency',color:C1,v:B.map(b=>b.eff)}],unit:'%',fixedY:[0,100],h:200,
     ref:{v:75,label:'Spec 75 %'},fmtX:F.bx,fmtTip:F.bt,aria:'Heat recovery efficiency, '+rangeTxt});
-  let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg OA</th></tr>';
+  let h='<table><tr><th>Period</th><th>Kept kWh</th><th>Lost kWh</th><th>Fan kWh</th><th>Efficiency</th><th>Avg outdoor (FR)</th></tr>';
   const n2=v=>v==null?'—':v.toFixed(2);
   for(const b of B)h+=`<tr><td>${F.bt(b.t)}</td><td>${n2(b.kept)}</td><td>${n2(b.lost)}</td><td>${n2(b.fan)}</td><td>${b.eff==null?'—':b.eff.toFixed(0)+' %'}</td><td>${b.out==null?'—':b.out.toFixed(1)+' °C'}</td></tr>`;
   $('evTbl').innerHTML=h+'</table>'}
