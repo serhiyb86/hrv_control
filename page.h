@@ -248,7 +248,7 @@ input[type=number]{width:80px}
   <div class="card" style="margin-top:12px">
     <h3>Weekly timer <span class="mut" style="text-transform:none;letter-spacing:0" id="clock"></span></h3>
     <div class="row"><label class="switch"><input type="checkbox" id="timerOn" onchange="renderTimer()"><span class="slider"></span></label> <b>Enabled</b>
-      <span class="mut">— up to 2 ON/OFF periods per day. At ON time the unit turns on with the fan speeds last set on the Dashboard (or by the temperature rules, if enabled); at OFF time it turns off. Saving applies the schedule immediately.</span></div>
+      <span class="mut">— up to 2 ON/OFF periods per day. An OFF time earlier than the ON time means OFF on the next day (e.g. ON 18:00, OFF 09:00). At ON time the unit turns on with the fan speeds last set on the Dashboard (or by the temperature rules, if enabled); at OFF time it turns off. Saving applies the schedule immediately.</span></div>
     <div class="note warn">Time comes from NTP (Europe/Kyiv). If the time is unknown, the timer does nothing. Do not run the wall controller's own weekly timer at the same time.</div>
     <div style="overflow-x:auto"><table id="timerTbl"></table></div>
     <div class="row" style="margin-top:8px">
@@ -602,12 +602,12 @@ function renderTimer(){
   TIMER.forEach((d,i)=>{h+=`<tr ${i==today?'style="background:var(--acc2)"':''}><td><b>${DAYS[i]}</b>${i==today?' <span class="mut">today</span>':''}</td>`;
     d.forEach((p,k)=>{const f=x=>`onchange="tSet(${i},${k},'${x}',this)"`,off=dis||(!p[0]?'disabled':'');
       h+=`<td ${k?'style="border-left:2px solid var(--line)"':''}><input type="checkbox" ${p[0]?'checked':''} ${dis} ${f('en')}></td>`+
-       `<td><input type="time" value="${hm(p[1])}" ${off} ${f('on')}></td><td><input type="time" value="${hm(p[2])}" ${off} ${f('off')}></td>`});
+       `<td><input type="time" value="${hm(p[1])}" ${off} ${f('on')}></td><td style="white-space:nowrap"><input type="time" value="${hm(p[2])}" ${off} ${f('off')}>${p[0]&&p[2]<p[1]?` <span class="mut">next day (${DAYS[(i+1)%7]})</span>`:''}</td>`});
     h+='</tr>'});
   $('timerTbl').innerHTML=h;nextEvent()}
 function tSet(d,k,key,el){const p=TIMER[d][k];
   if(key=='en')p[0]=el.checked?1:0;else if(key=='on')p[1]=toMin(el.value);else p[2]=toMin(el.value);
-  if(p[0]&&p[2]<=p[1]&&key!='en')toast('OFF time must be later than ON time');renderTimer()}
+  if(p[0]&&p[2]==p[1]&&key!='en')toast('OFF time must differ from ON time');renderTimer()}
 function copyDay(src,dst){dst.forEach(d=>TIMER[d]=JSON.parse(JSON.stringify(TIMER[src])));renderTimer();toast(`${DAYS[src]} copied — press Save timer`)}
 function nextEvent(){
   if(!TIMER.length)return;
@@ -615,12 +615,13 @@ function nextEvent(){
   if(!S||!S.tv){$('nextEv').textContent='controller time not synced';return}
   const now=new Date(S.t*1000),today=(now.getDay()+6)%7,cur=now.getHours()*60+now.getMinutes();
   for(let o=0;o<8;o++){const d=(today+o)%7,ev=[];
-    TIMER[d].forEach(p=>{if(p[0]){ev.push([p[1],'ON']);ev.push([p[2],'OFF'])}});
+    TIMER[d].forEach(p=>{if(p[0]){ev.push([p[1],'ON']);if(p[2]>p[1])ev.push([p[2],'OFF'])}});
+    TIMER[(d+6)%7].forEach(p=>{if(p[0]&&p[2]<p[1])ev.push([p[2],'OFF'])});   // overnight periods of the previous day
     ev.sort((a,b)=>a[0]-b[0]);
     for(const e of ev)if(o>0||e[0]>cur){$('nextEv').textContent=`${o==0?'today':o==1?'tomorrow':DAYS[d]} ${hm(e[0])} — ${e[1]}`;return}}
   $('nextEv').textContent='no periods set'}
 async function saveTimer(){
-  for(let d=0;d<7;d++)for(const p of TIMER[d])if(p[0]&&p[2]<=p[1]){toast(`${DAYS[d]}: OFF must be later than ON`);return}
+  for(let d=0;d<7;d++)for(const p of TIMER[d])if(p[0]&&p[2]==p[1]){toast(`${DAYS[d]}: OFF must differ from ON`);return}
   const q={section:'tmr',on:$('timerOn').checked?1:0,rev:$('rev').value};
   TIMER.forEach((d,i)=>q['d'+i]=d.map(p=>p.join(',')).join(','));
   done(await call('/api/config',q),'Timer saved')}

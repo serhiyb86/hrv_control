@@ -541,7 +541,9 @@ void applyTimerNow(const char *src) {
   bool want = false;
   for (int k = 0; k < 2; k++) {
     const Period &p = cfg.tmr[day][k];
-    if (p.en && p.on <= mod && mod < p.off) want = true;
+    if (p.en && p.on <= mod && (p.off < p.on || mod < p.off)) want = true;   // off < on: runs past midnight
+    const Period &y = cfg.tmr[(day + 6) % 7][k];                             // yesterday's overnight period
+    if (y.en && y.off < y.on && mod < y.off) want = true;
   }
   timerSwitch(want, src);
   manualMs = 0;
@@ -557,7 +559,11 @@ void timerTick() {
       const Period &p = cfg.tmr[day][k];
       if (!p.en) continue;
       if (p.on == mod) { timerSwitch(true, "Timer"); manualMs = 0; }
-      if (p.off == mod) { timerSwitch(false, "Timer"); manualMs = 0; }
+      if (p.off > p.on && p.off == mod) { timerSwitch(false, "Timer"); manualMs = 0; }
+    }
+    for (int k = 0; k < 2; k++) {   // overnight periods of the previous day end today
+      const Period &p = cfg.tmr[(day + 6) % 7][k];
+      if (p.en && p.off < p.on && p.off == mod) { timerSwitch(false, "Timer"); manualMs = 0; }
     }
   }
   if (cfg.revertMin && manualMs && millis() - manualMs >= cfg.revertMin * 60000UL) {
@@ -1159,7 +1165,7 @@ void handleConfigSet() {
       for (int k = 0; k < 2; k++) {
         Period p = {(uint8_t)(f[3 * k].toInt() ? 1 : 0), (uint16_t)constrain(f[3 * k + 1].toInt(), 0, 1439),
                     (uint16_t)constrain(f[3 * k + 2].toInt(), 0, 1439), 0};
-        if (p.en && p.off <= p.on) { sendErr("day " + String(d + 1) + " period " + String(k + 1) + ": OFF must be later than ON"); return; }
+        if (p.en && p.off == p.on) { sendErr("day " + String(d + 1) + " period " + String(k + 1) + ": OFF must differ from ON"); return; }
         t[d][k] = p;
       }
     }

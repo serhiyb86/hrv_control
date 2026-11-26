@@ -49,7 +49,7 @@ Flashing and verifying on the real unit is done by the user. Do not write Modbus
 - `des` (`Desired`: on, supply speed, exhaust speed) is the state the user wants. It is set by web actions and the timer, and by `adoptState()` when someone changes the wall controller (ignored for 8 s after our own writes). After the link comes back (`hadFailure`), `restoreTick()` re-applies `des` once `cfg.restoreDelay` has passed. This is the "auto-restart after power loss" feature.
 - Writes always go through `setPower()` / `setSpeeds()` / `writeReg()`. These update `regs`, `des` and the log, and set `ownWriteMs`. Don't call `mbWrite` directly for control actions.
 - Temperature rules (`evalRules`): the first enabled rule that matches wins. The active rule is kept while it still matches with hysteresis `cfg.hyst`, and switches are held for at least `cfg.holdMin`. In a rule, a `NAN` field means "any".
-- Weekly timer: 2 periods per day, minutes since midnight, day index Mon=0. A manual change while the timer is on sets `manualMs`; `cfg.revertMin` then reverts to the schedule.
+- Weekly timer: 2 periods per day, minutes since midnight, day index Mon=0. `off < on` means the period runs past midnight and turns off on the next day (`off == on` is rejected). A manual change while the timer is on sets `manualMs`; `cfg.revertMin` then reverts to the schedule.
 
 **Persistence**:
 - `Config cfg` and `des` are stored as raw struct blobs in NVS (`Preferences`, namespace `"hrv"`, keys `"cfg"`/`"des"`). On load the blob size must equal `sizeof(Config)` and `magic` must equal `CFG_MAGIC`, otherwise defaults are used. **Any change to the `Config`/`Rule`/`Period` layout silently resets all user settings.** Bump `CFG_MAGIC` deliberately, or add migration code.
