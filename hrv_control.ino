@@ -1,11 +1,13 @@
 // HRV controller for Cooper&Hunter CH-HRV3.5KDC over Modbus RTU (RS485)
-// Board: HKL-EA8 (ESP32 + LAN8720 Ethernet + PCF8574 relays + RS485), Arduino-ESP32 core 3.x
+// Board: HKL-EA8 (ESP32 + LAN8720 Ethernet + PCF8574 relays + RS485 + IR), Arduino-ESP32 core 3.x / 4.0
+// Libraries: PCF8574 (Renzo Mischianti), IRremoteESP8266 (2.9.0)
 //
 // Web UI: http://192.168.1.200/
 //   Dashboard     - temperatures, power, fan speeds, status and error bits
 //   Unit settings - bypass, defrost, CO2 setpoint (registers 2..7), Modbus address
 //   Automation    - auto-restart after power loss, air cond (free cooling by bypass, relay 1),
 //                   fan rules by temperature, weekly timer
+//   Split ACs     - air conditioners over IR (one relay each), in-app remote scan, off timer
 //   Energy        - heat kept / lost, history charts, CSV, clear history
 //   Advanced      - link settings, raw register access, log
 //
@@ -29,6 +31,11 @@
 #include <vector>
 #include <algorithm>
 #include <functional>
+#include <IRremoteESP8266.h>
+#include <IRrecv.h>
+#include <IRsend.h>
+#include <IRac.h>
+#include <IRutils.h>
 #include "page.h"
 
 // ============================================================ hardware
@@ -57,6 +64,9 @@ bool relayState[8] = {false};
 #define RS485_RX 14
 #define RS485_TX 13
 #define RS485_DE -1   // GPIO for manual DE/RE, -1 = auto-direction transceiver
+
+#define IR_TX_PIN 32  // board IR sender (vendor demo 09_IR_SendDemo)
+#define IR_RX_PIN 33  // board IR receiver (vendor demo 12.IR_receive_code)
 
 const char *TZ_INFO = "EET-2EEST,M3.5.0/3,M10.5.0/4";   // Europe/Kyiv
 const char *NTP1 = "pool.ntp.org";
@@ -117,6 +127,25 @@ struct AcCfg {
   int8_t tgt, d, hyst;       // desired room °C, outdoor cooler than room by >= d °C, hysteresis °C (integers)
   uint16_t hold, from, to;   // min hold time (min); allowed hours, minutes of the day (from > to runs past midnight)
 };
+
+// Split ACs over IR. Each AC has its own IR LED wired through one board relay.
+// One NVS key per AC ("spl0".."spl7"), so saving one AC writes only its own ~640 bytes.
+// Recorded commands are raw timings (uint16 µs, mark/space) in LittleFS: /ir/<ac>_<cmd>.bin
+const uint32_t SPL_MAGIC = 0x53504C31;   // "SPL1"
+const int SPL_MAX = 8, SPL_MAX_CMD = 12, SPL_STR = 48;   // one AC per relay; names up to 47 bytes (UTF-8)
+struct SplitSt { uint8_t on, mode, temp, fan, swing; };  // mode 0 auto 1 cool 2 heat 3 dry 4 fan (= stdAc::opmode_t); fan 0 auto .. 5 max (= stdAc::fanspeed_t)
+struct SplitUnit {
+  uint32_t magic;
+  uint8_t relay;                 // 1..8, 0 = slot not used
+  uint8_t kind;                  // 0 IR not set up, 1 protocol (commands built by the library), 2 recorded commands
+  int16_t proto, model;          // decode_type_t and model, kind 1
+  int8_t offCmd; uint8_t nCmd;   // recorded command the off timer sends (-1 none); number of recorded commands
+  char name[SPL_STR];
+  char cmd[SPL_MAX_CMD][SPL_STR];
+  SplitSt st;                    // last state sent, kind 1
+};
+struct SplitRun { uint32_t txMs, offAtMs, dirtyMs; int8_t last; bool tx, offSet, dirty; };   // runtime only, not stored
+struct ScanRes { bool known = false; int16_t proto = -1, model = -1; uint16_t bits = 0; String desc; std::vector<uint16_t> raw; };
 
 enum MbErr { MB_OK, MB_TIMEOUT, MB_CRC, MB_EXCEPTION, MB_BAD };
 
@@ -184,6 +213,19 @@ uint8_t acSt = 0;                            // 0 off, 1 waiting, 2 cooling, 3 b
 String acWhy = "disabled";
 bool acManOff = false, acTurnedOn = false;   // unit switched off by hand; air cond switched the unit on
 uint32_t acSinceMs = 0, acSwitchMs = 0;      // last relay change (for the UI / for the hold time)
+
+IRac irac(IR_TX_PIN);
+IRsend irsend(IR_TX_PIN);
+IRrecv irrecv(IR_RX_PIN, 1024, 50, true);   // big buffer and 50 ms gap: AC frames are long
+decode_results irRes;
+SplitUnit spl[SPL_MAX];
+SplitRun splRun[SPL_MAX];
+uint8_t scanSt = 0;                          // 0 idle, 1 listening, 2 got a signal, 3 nothing received
+uint32_t scanMs = 0;
+const uint32_t SCAN_MS = 15000;
+ScanRes scanRes;
+const char *SPL_MODE[] = {"auto", "cool", "heat", "dry", "fan"};
+const char *SPL_FAN[] = {"auto", "min", "low", "medium", "high", "max"};
 
 bool fsOk = false;
 MinAcc macc = {};
@@ -675,6 +717,164 @@ void acTick() {
     acStop(1, why, "Air cond");
   }
   acSt = need ? 2 : 1; acWhy = why;
+}
+
+// ============================================================ split ACs (IR)
+// To send to one AC: close its relay, wait for the contacts, send on the IR output, open the relay.
+// Only one relay is closed at a time. A send blocks for about 100-300 ms.
+bool splUsed(int i) { return spl[i].relay != 0; }
+
+int splOfRelay(int ch) {   // ch 0..7 -> AC index or -1
+  for (int i = 0; i < SPL_MAX; i++) if (splUsed(i) && spl[i].relay == ch + 1) return i;
+  return -1;
+}
+
+// relay 1..8 used by air cond or by another AC
+bool relayTaken(int relay, int except) {
+  if (relay == AC_RELAY + 1 && ac.on) return true;
+  int i = splOfRelay(relay - 1);
+  return i >= 0 && i != except;
+}
+
+void splKey(char *k, int i) { snprintf(k, 8, "spl%d", i); }
+void cmdPath(char *b, int i, int c) { snprintf(b, 24, "/ir/%d_%d.bin", i, c); }
+
+void splSave(int i) {
+  char k[8]; splKey(k, i);
+  if (splUsed(i)) prefs.putBytes(k, &spl[i], sizeof(SplitUnit));
+  else prefs.remove(k);
+  splRun[i].dirty = false;
+}
+
+void splLoad() {
+  for (int i = 0; i < SPL_MAX; i++) {
+    char k[8]; splKey(k, i);
+    memset(&spl[i], 0, sizeof(SplitUnit));
+    splRun[i] = {0, 0, 0, -1, false, false, false};
+    if (prefs.getBytesLength(k) == sizeof(SplitUnit)) prefs.getBytes(k, &spl[i], sizeof(SplitUnit));
+    SplitUnit &u = spl[i];
+    if (u.magic != SPL_MAGIC || u.relay > 8 || u.kind > 2) { memset(&u, 0, sizeof u); continue; }
+    u.name[SPL_STR - 1] = 0;
+    if (u.nCmd > SPL_MAX_CMD) u.nCmd = SPL_MAX_CMD;
+    for (int c = 0; c < SPL_MAX_CMD; c++) u.cmd[c][SPL_STR - 1] = 0;
+    if (u.offCmd >= u.nCmd) u.offCmd = -1;
+  }
+}
+
+void splDirty(int i) { splRun[i].dirty = true; splRun[i].dirtyMs = millis(); }
+
+void splDelFiles(int i) {
+  if (!fsOk) return;
+  char p[24];
+  for (int c = 0; c < SPL_MAX_CMD; c++) { cmdPath(p, i, c); if (LittleFS.exists(p)) LittleFS.remove(p); }
+}
+
+String protoName(int16_t p) { return typeToString((decode_type_t)p); }
+String modelName(int16_t p, int16_t m) {
+  if (m <= 0) return "";
+  String s = irutils::modelToStr((decode_type_t)p, m);
+  return s == "UNKNOWN" ? String() : s;
+}
+
+String splStateTxt(const SplitSt &s) {
+  if (!s.on) return "off";
+  String t = SPL_MODE[s.mode];
+  if (s.mode != 4) { t += ' '; t += s.temp; t += " °C"; }
+  t += ", fan "; t += SPL_FAN[s.fan];
+  if (s.swing) t += ", swing";
+  return t;
+}
+
+void irBegin(int i) { setRelay(spl[i].relay - 1, true); delay(30); }   // let the relay contacts settle
+void irEnd(int i) {
+  delay(5);
+  setRelay(spl[i].relay - 1, false);
+  splRun[i].txMs = millis(); splRun[i].tx = true;
+}
+
+bool splSendState(int i, const SplitSt &s, const char *src) {
+  SplitUnit &u = spl[i];
+  stdAc::state_t st;
+  IRac::initState(&st);
+  st.protocol = (decode_type_t)u.proto; st.model = u.model;
+  st.power = s.on; st.mode = (stdAc::opmode_t)s.mode;
+  st.degrees = s.temp; st.celsius = true;
+  st.fanspeed = (stdAc::fanspeed_t)s.fan;
+  st.swingv = s.swing ? stdAc::swingv_t::kAuto : stdAc::swingv_t::kOff;
+  irBegin(i);
+  bool ok = irac.sendAc(st, nullptr);
+  irEnd(i);
+  if (!ok) { addLog("%s: IR %s: %s cannot build this command", src, u.name, protoName(u.proto).c_str()); return false; }
+  u.st = s; splDirty(i);
+  if (!s.on) splRun[i].offSet = false;
+  addLog("%s: IR %s (relay %u): %s %s", src, u.name, u.relay, protoName(u.proto).c_str(), splStateTxt(s).c_str());
+  return true;
+}
+
+bool splSendCmd(int i, int c, const char *src) {
+  SplitUnit &u = spl[i];
+  char p[24]; cmdPath(p, i, c);
+  File f = fsOk ? LittleFS.open(p, "r") : File();
+  if (!f) { addLog("%s: IR %s: command \"%s\" file missing", src, u.name, u.cmd[c]); return false; }
+  size_t n = f.size() / 2;
+  std::vector<uint16_t> b(n);
+  bool ok = n > 0 && f.read((uint8_t *)b.data(), n * 2) == n * 2;
+  f.close();
+  if (!ok) { addLog("%s: IR %s: command \"%s\" cannot be read", src, u.name, u.cmd[c]); return false; }
+  irBegin(i);
+  irsend.sendRaw(b.data(), n, 38);   // 38 kHz: the receive side does not report the carrier
+  irEnd(i);
+  splRun[i].last = c;
+  if (c == u.offCmd) splRun[i].offSet = false;
+  addLog("%s: IR %s (relay %u): \"%s\"", src, u.name, u.relay, u.cmd[c]);
+  return true;
+}
+
+// off timer and delayed saving of the sent state
+void splTick() {
+  for (int i = 0; i < SPL_MAX; i++) {
+    if (!splUsed(i)) continue;
+    SplitRun &r = splRun[i];
+    if (r.offSet && (int32_t)(millis() - r.offAtMs) >= 0) {
+      r.offSet = false;
+      if (spl[i].kind == 1 && spl[i].st.on) { SplitSt s = spl[i].st; s.on = 0; splSendState(i, s, "Off timer"); }
+      else if (spl[i].kind == 2 && spl[i].offCmd >= 0) splSendCmd(i, spl[i].offCmd, "Off timer");
+    }
+    if (r.dirty && millis() - r.dirtyMs > 10000) splSave(i);
+  }
+}
+
+void scanStop() {
+  if (scanSt == 1) irrecv.disableIRIn();
+  scanSt = 0;
+}
+
+void scanStart() {
+  if (scanSt == 1) irrecv.disableIRIn();
+  scanRes = ScanRes();
+  irrecv.enableIRIn();
+  scanSt = 1; scanMs = millis();
+}
+
+// The receiver only runs during a scan. It works from an interrupt, so the web server keeps running.
+void scanTick() {
+  if (scanSt != 1) return;
+  if (irrecv.decode(&irRes)) {
+    irrecv.disableIRIn();
+    ScanRes r;
+    r.proto = irRes.decode_type; r.bits = irRes.bits;
+    uint16_t *raw = resultToRawArray(&irRes);
+    uint16_t n = getCorrectedRawLength(&irRes);
+    r.raw.assign(raw, raw + n);
+    delete[] raw;
+    stdAc::state_t st;
+    r.known = IRac::isProtocolSupported(irRes.decode_type) && IRAcUtils::decodeToState(&irRes, &st);
+    if (r.known) { r.model = st.model; r.desc = IRAcUtils::resultAcToString(&irRes); }
+    scanRes = r; scanSt = 2;
+    addLog("IR scan: %s, %u bits, %u pulses%s", protoName(r.proto).c_str(), r.bits, n, r.known ? "" : " (not decoded)");
+    return;
+  }
+  if (millis() - scanMs >= SCAN_MS) { irrecv.disableIRIn(); scanSt = 3; }
 }
 
 // ============================================================ history storage
@@ -1313,6 +1513,8 @@ void handleConfigSet() {
     a.hrs = server.arg("hrs").toInt() ? 1 : 0;
     a.from = num("from", 0, 1439, 1320); a.to = num("to", 0, 1439, 480);
     if (a.hrs && a.from == a.to) { sendErr("start and end time must differ"); return; }
+    int s = splOfRelay(AC_RELAY);
+    if (a.on && s >= 0) { sendErr(String("relay 1 is used by split AC ") + spl[s].name); return; }
     ac = a;
     saveAc();
     addLog("Air cond saved (%s, desired %d °C, delta %d °C)", ac.on ? "enabled" : "disabled", ac.tgt, ac.d);
@@ -1321,6 +1523,277 @@ void handleConfigSet() {
     return;
   } else { sendErr("unknown section"); return; }
   saveConfig();
+  sendOk();
+}
+
+// ============================================================ web: split ACs (IR)
+// kind 1 ACs are controlled by state (on, mode, temp, fan, swing); kind 2 by recorded command index.
+int splArg() {   // id of an existing AC, or -1
+  if (!server.hasArg("id")) return -1;
+  int i = server.arg("id").toInt();
+  return i >= 0 && i < SPL_MAX && splUsed(i) ? i : -1;
+}
+
+// trimmed name without control characters; "" if empty or too long
+String nameArg(const char *k, String &err) {
+  String s = server.arg(k), o;
+  s.trim();
+  for (unsigned i = 0; i < s.length(); i++) if ((uint8_t)s[i] >= 32) o += s[i];
+  if (!o.length()) { err = "name is empty"; return ""; }
+  if (o.length() > SPL_STR - 1) { err = "name is too long"; return ""; }
+  return o;
+}
+
+void handleSplitGet() {
+  String j; j.reserve(3500);
+  j += "{\"max\":"; j += SPL_MAX; j += ",\"acRelay\":"; j += ac.on ? 1 : 0;
+  j += ",\"free\":[";
+  bool first = true;
+  for (int r = 1; r <= 8; r++) if (!relayTaken(r, -1)) { if (!first) j += ','; j += r; first = false; }
+  j += "],\"list\":[";
+  first = true;
+  for (int i = 0; i < SPL_MAX; i++) {
+    if (!splUsed(i)) continue;
+    const SplitUnit &u = spl[i]; const SplitRun &r = splRun[i];
+    if (!first) j += ',';
+    first = false;
+    j += "{\"id\":"; j += i;
+    j += ",\"name\":\""; j += jsonEsc(u.name);
+    j += "\",\"relay\":"; j += u.relay; j += ",\"kind\":"; j += u.kind;
+    j += ",\"proto\":\""; if (u.kind == 1) j += jsonEsc(protoName(u.proto));
+    j += "\",\"model\":\""; if (u.kind == 1) j += jsonEsc(modelName(u.proto, u.model));
+    j += "\",\"st\":{\"on\":"; j += u.st.on; j += ",\"mode\":"; j += u.st.mode; j += ",\"temp\":"; j += u.st.temp;
+    j += ",\"fan\":"; j += u.st.fan; j += ",\"swing\":"; j += u.st.swing;
+    j += "},\"ago\":"; j += r.tx ? (long)((millis() - r.txMs) / 1000) : -1L;
+    j += ",\"cmds\":[";
+    for (int c = 0; c < u.nCmd; c++) { if (c) j += ','; j += '"'; j += jsonEsc(u.cmd[c]); j += '"'; }
+    j += "],\"last\":\""; if (u.kind == 2 && r.last >= 0 && r.last < u.nCmd) j += jsonEsc(u.cmd[r.last]);
+    j += "\",\"offCmd\":"; j += u.offCmd;
+    long in = r.offSet ? max(0L, (long)(int32_t)(r.offAtMs - millis()) / 1000) : -1L;
+    j += ",\"offIn\":"; j += in;
+    j += ",\"offT\":"; j += in >= 0 && timeValid() ? (unsigned long)(nowT() + in) : 0UL;
+    j += '}';
+  }
+  j += "]}";
+  sendJson(j);
+}
+
+// add (id -1) or change an AC: name, relay, offCmd (kind 2)
+void handleSplitCfg() {
+  int id = server.arg("id").toInt();
+  String err, name = nameArg("name", err);
+  if (!name.length()) { sendErr(err); return; }
+  int relay = server.arg("relay").toInt();
+  if (relay < 1 || relay > 8) { sendErr("bad relay"); return; }
+  bool add = id < 0;
+  if (!add && (id >= SPL_MAX || !splUsed(id))) { sendErr("no such AC"); return; }
+  if (relayTaken(relay, add ? -1 : id)) {
+    sendErr("relay " + String(relay) + " is in use" + (relay == AC_RELAY + 1 && ac.on ? " by air cond" : ""));
+    return;
+  }
+  if (add) {
+    for (id = 0; id < SPL_MAX && splUsed(id); id++) {}
+    if (id >= SPL_MAX) { sendErr("no free slot"); return; }
+    SplitUnit &u = spl[id];
+    memset(&u, 0, sizeof u);
+    u.magic = SPL_MAGIC; u.proto = -1; u.model = -1; u.offCmd = -1;
+    u.st = {0, 1, 24, 0, 0};
+    splRun[id] = {0, 0, 0, -1, false, false, false};
+    splDelFiles(id);   // leftovers of an AC deleted while the file system was not available
+  }
+  SplitUnit &u = spl[id];
+  strlcpy(u.name, name.c_str(), SPL_STR);
+  u.relay = relay;
+  if (server.hasArg("offCmd")) {
+    int c = server.arg("offCmd").toInt();
+    u.offCmd = u.kind == 2 && c >= 0 && c < u.nCmd ? c : -1;
+    if (u.offCmd < 0) splRun[id].offSet = false;
+  }
+  splSave(id);
+  addLog("Split AC %s: %s (relay %d)", add ? "added" : "saved", u.name, relay);
+  sendJson("{\"ok\":true,\"id\":" + String(id) + "}");
+}
+
+void handleSplitDel() {
+  int i = splArg();
+  if (i < 0) { sendErr("no such AC"); return; }
+  addLog("Split AC deleted: %s", spl[i].name);
+  splDelFiles(i);
+  memset(&spl[i], 0, sizeof(SplitUnit));
+  splRun[i] = {0, 0, 0, -1, false, false, false};
+  splSave(i);
+  sendOk();
+}
+
+void handleSplitSend() {
+  int i = splArg();
+  if (i < 0) { sendErr("no such AC"); return; }
+  SplitUnit &u = spl[i];
+  if (u.kind == 1) {
+    auto n = [](const char *k, int lo, int hi) { return constrain((int)server.arg(k).toInt(), lo, hi); };
+    SplitSt s = {(uint8_t)(n("on", 0, 1)), (uint8_t)n("mode", 0, 4), (uint8_t)n("temp", 16, 30), (uint8_t)n("fan", 0, 5), (uint8_t)n("swing", 0, 1)};
+    if (!splSendState(i, s, "Web")) { sendErr(protoName(u.proto) + " cannot build this command"); return; }
+  } else if (u.kind == 2) {
+    int c = server.hasArg("cmd") ? server.arg("cmd").toInt() : -1;
+    if (c < 0 || c >= u.nCmd) { sendErr("no such command"); return; }
+    if (!splSendCmd(i, c, "Web")) { sendErr("recorded command cannot be read"); return; }
+  } else { sendErr("IR not set up"); return; }
+  sendOk();
+}
+
+bool copyFile(const char *from, const char *to) {
+  File a = LittleFS.open(from, "r");
+  if (!a) return false;
+  File b = LittleFS.open(to, "w");
+  if (!b) { a.close(); return false; }
+  uint8_t buf[256]; size_t n; bool ok = true;
+  while ((n = a.read(buf, sizeof buf)) > 0) if (b.write(buf, n) != n) { ok = false; break; }
+  a.close(); b.close();
+  return ok;
+}
+
+void handleSplitCopy() {
+  int i = splArg(), f = server.arg("from").toInt();
+  if (i < 0 || f < 0 || f >= SPL_MAX || f == i || !splUsed(f) || !spl[f].kind) { sendErr("nothing to copy"); return; }
+  SplitUnit &u = spl[i], &s = spl[f];
+  if (s.kind == 2) {
+    if (!fsOk) { sendErr("file system not available"); return; }
+    splDelFiles(i);
+    char a[24], b[24];
+    for (int c = 0; c < s.nCmd; c++) {
+      cmdPath(a, f, c); cmdPath(b, i, c);
+      if (!copyFile(a, b)) { splDelFiles(i); u.kind = 0; u.nCmd = 0; u.offCmd = -1; splSave(i); sendErr("copying the recorded commands failed"); return; }
+    }
+  } else splDelFiles(i);
+  u.kind = s.kind; u.proto = s.proto; u.model = s.model;
+  u.nCmd = s.kind == 2 ? s.nCmd : 0; u.offCmd = s.kind == 2 ? s.offCmd : -1;
+  memcpy(u.cmd, s.cmd, sizeof u.cmd);
+  splRun[i].last = -1; splRun[i].offSet = false;
+  splSave(i);
+  addLog("Split AC %s: IR copied from %s", u.name, s.name);
+  sendOk();
+}
+
+void handleSplitCmdDel() {
+  int i = splArg(), c = server.arg("cmd").toInt();
+  if (i < 0 || spl[i].kind != 2 || c < 0 || c >= spl[i].nCmd) { sendErr("no such command"); return; }
+  SplitUnit &u = spl[i];
+  char a[24], b[24];
+  cmdPath(a, i, c);
+  if (fsOk) LittleFS.remove(a);
+  for (int k = c + 1; k < u.nCmd; k++) {   // keep the files numbered 0..n-1
+    cmdPath(a, i, k); cmdPath(b, i, k - 1);
+    if (fsOk) LittleFS.rename(a, b);
+    memcpy(u.cmd[k - 1], u.cmd[k], SPL_STR);
+  }
+  u.nCmd--;
+  memset(u.cmd[u.nCmd], 0, SPL_STR);
+  if (u.offCmd == c) { u.offCmd = -1; splRun[i].offSet = false; }
+  else if (u.offCmd > c) u.offCmd--;
+  if (splRun[i].last == c) splRun[i].last = -1;
+  else if (splRun[i].last > c) splRun[i].last--;
+  if (!u.nCmd) u.kind = 0;
+  splSave(i);
+  sendOk();
+}
+
+// min = minutes from now (0 cancels), or at = minutes since midnight (the next time it comes)
+void handleSplitOffTimer() {
+  int i = splArg();
+  if (i < 0) { sendErr("no such AC"); return; }
+  SplitUnit &u = spl[i]; SplitRun &r = splRun[i];
+  if (u.kind == 1 ? !u.st.on : u.kind == 2 ? u.offCmd < 0 : true) {
+    sendErr(u.kind == 2 ? "set the off command first" : u.kind == 1 ? "the AC is off" : "IR not set up"); return;
+  }
+  uint32_t sec;
+  if (server.hasArg("at")) {
+    int a = server.arg("at").toInt();
+    if (a < 0 || a >= 1440) { sendErr("bad time"); return; }
+    if (!timeValid()) { sendErr("controller time not synced"); return; }
+    uint32_t now = nowT();
+    struct tm tm; localTm(now, tm);
+    tm.tm_hour = a / 60; tm.tm_min = a % 60; tm.tm_sec = 0;
+    uint32_t t = mkLocal(tm);
+    if (t <= now) { localTm(now, tm); tm.tm_mday++; tm.tm_hour = a / 60; tm.tm_min = a % 60; tm.tm_sec = 0; t = mkLocal(tm); }
+    sec = t - now;
+  } else {
+    int m = server.arg("min").toInt();
+    if (m < 0 || m > 1440) { sendErr("bad time"); return; }
+    if (!m) { r.offSet = false; addLog("Split AC %s: off timer cancelled", u.name); sendOk(); return; }
+    sec = m * 60UL;
+  }
+  r.offSet = true; r.offAtMs = millis() + sec * 1000UL;
+  addLog("Split AC %s: off timer in %lu min", u.name, (unsigned long)((sec + 59) / 60));
+  sendOk();
+}
+
+void handleScanGet() {
+  if (scanSt == 1 && millis() - scanMs >= SCAN_MS) scanTick();
+  String j; j.reserve(600);
+  j += "{\"st\":"; j += scanSt;
+  j += ",\"left\":"; j += scanSt == 1 ? (long)((SCAN_MS - (millis() - scanMs) + 999) / 1000) : 0L;
+  j += ",\"res\":";
+  if (scanSt == 2) {
+    j += "{\"known\":"; j += scanRes.known ? 1 : 0;
+    j += ",\"proto\":\""; j += jsonEsc(protoName(scanRes.proto));
+    j += "\",\"model\":\""; j += jsonEsc(modelName(scanRes.proto, scanRes.model));
+    j += "\",\"bits\":"; j += scanRes.bits;
+    j += ",\"len\":"; j += (unsigned)scanRes.raw.size();
+    j += ",\"desc\":\""; j += jsonEsc(scanRes.desc); j += "\"}";
+  } else j += "null";
+  j += '}';
+  sendJson(j);
+}
+
+// use the decoded protocol for an AC
+void handleIrUse() {
+  int i = splArg();
+  if (i < 0) { sendErr("no such AC"); return; }
+  if (scanSt != 2 || !scanRes.known) { sendErr("no decoded signal"); return; }
+  SplitUnit &u = spl[i];
+  splDelFiles(i);
+  u.kind = 1; u.proto = scanRes.proto; u.model = scanRes.model;
+  u.nCmd = 0; u.offCmd = -1; memset(u.cmd, 0, sizeof u.cmd);
+  splRun[i].last = -1; splRun[i].offSet = false;
+  splSave(i);
+  scanSt = 0;
+  addLog("Split AC %s: IR protocol %s %s", u.name, protoName(u.proto).c_str(), modelName(u.proto, u.model).c_str());
+  sendOk();
+}
+
+// save the scanned signal as a recorded command (an existing command with the same name is replaced)
+void handleIrLearn() {
+  int i = splArg();
+  if (i < 0) { sendErr("no such AC"); return; }
+  if (scanSt != 2 || scanRes.raw.empty()) { sendErr("no signal"); return; }
+  if (!fsOk) { sendErr("file system not available"); return; }
+  String err, name = nameArg("name", err);
+  if (!name.length()) { sendErr("command " + err); return; }
+  SplitUnit &u = spl[i];
+  int c = -1;
+  if (u.kind == 2) for (int k = 0; k < u.nCmd; k++) if (name == u.cmd[k]) c = k;
+  if (c < 0 && u.kind == 2 && u.nCmd >= SPL_MAX_CMD) { sendErr("up to " + String(SPL_MAX_CMD) + " commands"); return; }
+  if (u.kind != 2) {   // switch to recorded commands
+    splDelFiles(i);
+    u.kind = 2; u.proto = -1; u.model = -1; u.nCmd = 0; u.offCmd = -1; memset(u.cmd, 0, sizeof u.cmd);
+    splRun[i].last = -1; splRun[i].offSet = false;
+  }
+  bool isNew = c < 0;
+  if (isNew) c = u.nCmd;
+  char p[24]; cmdPath(p, i, c);
+  File f = LittleFS.open(p, "w");
+  size_t bytes = scanRes.raw.size() * 2;
+  bool ok = f && f.write((const uint8_t *)scanRes.raw.data(), bytes) == bytes;
+  if (f) f.close();
+  if (!ok) { LittleFS.remove(p); splSave(i); sendErr("writing the command failed"); return; }
+  if (isNew) {
+    strlcpy(u.cmd[c], name.c_str(), SPL_STR);
+    u.nCmd++;
+    if (u.offCmd < 0 && name.equalsIgnoreCase("off")) u.offCmd = c;   // a command named "Off" becomes the off command
+  }
+  splSave(i);
+  scanSt = 0;
+  addLog("Split AC %s: command \"%s\" recorded (%u pulses)", u.name, name.c_str(), (unsigned)scanRes.raw.size());
   sendOk();
 }
 
@@ -1482,7 +1955,9 @@ void handleRelays() {
             "<h2>HKL-EA8 Relay Control</h2>");
   for (int ch = 0; ch < 8; ch++) {
     page += "<p>Relay " + String(ch + 1) + " — <b>" + (relayState[ch] ? "ON" : "OFF") + "</b> &nbsp; ";
+    int s = splOfRelay(ch);
     if (ch == AC_RELAY && ac.on) page += "<i>controlled by air cond (Automation tab)</i></p>";
+    else if (s >= 0) page += "<i>IR for split AC " + String(spl[s].name) + " (Split ACs tab)</i></p>";
     else page += "<a href='/relay?ch=" + String(ch) + "&state=1'>ON</a> &nbsp; "
                  "<a href='/relay?ch=" + String(ch) + "&state=0'>OFF</a></p>";
   }
@@ -1497,6 +1972,7 @@ void handleRelay() {
     return;
   }
   if (ch == AC_RELAY && ac.on) { server.send(409, "text/plain", "Relay 1 is controlled by air cond. Disable air cond in Automation first."); return; }
+  if (splOfRelay(ch) >= 0) { server.send(409, "text/plain", "This relay carries the IR signal of a split AC. Change it on the Split ACs tab."); return; }
   setRelay(ch, state == 1);
   server.sendHeader("Location", "/relays");
   server.send(303, "text/plain", "Relay updated");
@@ -1509,6 +1985,7 @@ void setup() {
   Serial.println("\nHKL-EA8 HRV controller");
 
   loadConfig();
+  splLoad();
   if (RS485_DE >= 0) { pinMode(RS485_DE, OUTPUT); digitalWrite(RS485_DE, LOW); }
   uartApply();
 
@@ -1518,11 +1995,14 @@ void setup() {
 
   fsOk = LittleFS.begin(true);
   if (fsOk) {
-    const char *dirs[] = {"/m", "/h", "/d"};
+    const char *dirs[] = {"/m", "/h", "/d", "/ir"};
     for (const char *d : dirs) if (!LittleFS.exists(d)) LittleFS.mkdir(d);
   } else {
     Serial.println("WARNING: LittleFS not available, history disabled.");
   }
+
+  irsend.begin();
+  irrecv.setUnknownThreshold(12);   // shorter unknown bursts are noise
 
   if (!ETH.begin(ETH_TYPE, ETH_ADDR, ETH_MDC_PIN, ETH_MDIO_PIN, ETH_POWER_PIN, ETH_CLK_MODE))
     Serial.println("ETH.begin() reported failure.");
@@ -1546,6 +2026,18 @@ void setup() {
   server.on("/api/csv", HTTP_GET, handleCsv);
   server.on("/api/storage", HTTP_GET, handleStorage);
   server.on("/api/history/clear", HTTP_POST, handleClear);
+  server.on("/api/split", HTTP_GET, handleSplitGet);
+  server.on("/api/split/cfg", HTTP_POST, handleSplitCfg);
+  server.on("/api/split/del", HTTP_POST, handleSplitDel);
+  server.on("/api/split/send", HTTP_POST, handleSplitSend);
+  server.on("/api/split/copy", HTTP_POST, handleSplitCopy);
+  server.on("/api/split/cmddel", HTTP_POST, handleSplitCmdDel);
+  server.on("/api/split/offtimer", HTTP_POST, handleSplitOffTimer);
+  server.on("/api/ir/scan", HTTP_GET, handleScanGet);
+  server.on("/api/ir/scan", HTTP_POST, [] { scanStart(); sendOk(); });
+  server.on("/api/ir/stop", HTTP_POST, [] { scanStop(); sendOk(); });
+  server.on("/api/ir/use", HTTP_POST, handleIrUse);
+  server.on("/api/ir/learn", HTTP_POST, handleIrLearn);
   server.begin();
 
   addLog("Started: http://%s/  (Modbus addr %u, %lu %s)", local_IP.toString().c_str(), cfg.addr, (unsigned long)cfg.baud, FMT_NAME[cfg.fmt]);
@@ -1560,5 +2052,7 @@ void loop() {
   }
   restoreTick();
   minuteTick();
+  scanTick();
+  splTick();
   saveDesiredIfDirty();
 }

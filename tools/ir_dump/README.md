@@ -1,7 +1,9 @@
 # ir_dump — scan the AC remote
 
 A standalone sketch that finds out which IR protocol the air conditioner remote
-(Delfa) uses. Use it once, before the IR control feature is built.
+(Delfa) uses. The main firmware now has the same scan built in (Split ACs tab →
+Settings → Scan remote), so this is only a backup, e.g. to see the full raw
+signal on the serial monitor.
 
 The HKL-EA8 has an IR receiver on **GPIO33** and an IR sender on **GPIO32**
 (from the vendor demo code). This sketch only uses the receiver.

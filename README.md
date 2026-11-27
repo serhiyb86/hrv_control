@@ -7,7 +7,7 @@ In Arduino IDE: NodeMCU-32S
 https://github.com/hankerila-MA/HKL-EA8
 
 # Build and flash
-Requires [Arduino CLI](https://arduino.github.io/arduino-cli/) (`winget install ArduinoSA.CLI`), the ESP32 core and the PCF8574 library:
+Requires [Arduino CLI](https://arduino.github.io/arduino-cli/) (`winget install ArduinoSA.CLI`), the ESP32 core, the PCF8574 library and IRremoteESP8266 (split ACs over IR):
 
 ```bash
 arduino-cli config init
@@ -15,6 +15,7 @@ arduino-cli config add board_manager.additional_urls https://espressif.github.io
 arduino-cli core update-index
 arduino-cli core install esp32:esp32
 arduino-cli lib install "PCF8574 library"
+arduino-cli lib install IRremoteESP8266
 ```
 
 Compile, flash over USB (replace `COMx` with the board's port, see `arduino-cli board list`) and open the serial log:
@@ -39,7 +40,7 @@ The planned Telegram bot follows the same rule: the ESP32 only makes outgoing co
 # Plans to develop the app
 
 1. by pass as air cond.
-2. control air conditioners 5 IR
+2. control air conditioners over IR — done (Split ACs tab, up to 8, one per relay)
 3. vent for basement
 4. connect to Telegram bot
 5. fix timer to be able to schedule on in one day and off in next day

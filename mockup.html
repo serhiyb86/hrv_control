@@ -95,6 +95,18 @@ input[type=number]{width:80px}
 .ev-tip .r{display:flex;align-items:center;gap:6px;margin:2px 0;color:var(--text-secondary)}
 .ev-tip .r b{color:var(--text-primary);margin-left:auto;padding-left:10px}
 .ev-tip .r i{display:inline-block;width:12px;height:2px}
+/* ---- split ACs (IR) ---- */
+.seg{display:inline-flex;border:1px solid #c8d0d7;border-radius:7px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:#fff;padding:6px 10px;font-size:13px;cursor:pointer;border-right:1px solid #c8d0d7}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--acc);color:#fff}
+.seg button:disabled{opacity:.45;cursor:default}
+.pwr.sm{width:56px;height:56px;font-size:24px}
+details summary{cursor:pointer;color:var(--mut);font-size:13px;margin-top:8px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:10}
+.modal.on{display:flex}
+.dlg{background:#fff;border-radius:10px;padding:16px;max-width:480px;width:calc(100% - 28px)}
+.dlg h3{margin:0 0 10px;font-size:15px}
 .toast{position:fixed;top:60px;right:14px;background:#16202a;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;display:none}
 .mock{position:fixed;bottom:10px;right:10px;background:#7b2cbf;color:#fff;font-size:12px;padding:5px 10px;border-radius:6px;opacity:.9;pointer-events:none}
 </style></head><body>
@@ -112,6 +124,7 @@ input[type=number]{width:80px}
   <button data-t="dash" class="on">Dashboard</button>
   <button data-t="settings">Unit settings</button>
   <button data-t="auto">Automation</button>
+  <button data-t="splits">Split ACs</button>
   <button data-t="energy">Energy</button>
   <button data-t="adv">Advanced / Modbus</button>
   <button data-t="manual">Manual</button>
@@ -196,7 +209,20 @@ input[type=number]{width:80px}
       </table>
       <div class="mut" style="margin-top:6px">Efficiency = (SA − FR) / (RA − FR), supply side. Exhaust side = (RA − OA) / (RA − FR). Free cooling = 0.335 × supply airflow × (RA − FR) while the bypass is open. Power uses the airflow table in Energy.</div>
     </div>
+    <div class="card">
+      <h3>Split ACs <span class="reg">IR</span></h3>
+      <table id="splDash"></table>
+      <div class="row"><a href="#" onclick="show('splits');return false">Control and settings</a></div>
+    </div>
   </div>
+</section>
+
+<!-- ================= SPLIT ACs (IR) ================= -->
+<section class="tab" id="splits">
+  <div class="note">Each air conditioner has its own IR LED, wired through one board relay. To send, the controller closes that relay, sends the command on the IR output and opens the relay again.
+    IR is one-way: the controller shows the last command it sent. Changes made with the handheld remote are not seen; use <b>Send again</b> to bring an AC back to the shown state.</div>
+  <div class="grid" id="splGrid"></div>
+  <div class="row" style="margin-top:12px"><button class="btn" id="splAddBtn" onclick="splAdd()">+ Add air conditioner</button> <span class="mut" id="splFree"></span></div>
 </section>
 
 <!-- ================= SETTINGS ================= -->
@@ -451,6 +477,11 @@ input[type=number]{width:80px}
   </div>
 </section>
 </main>
+<div class="modal" id="scanDlg"><div class="dlg">
+  <h3>Scan remote — <span id="scName"></span></h3>
+  <div id="scBody"></div>
+  <div class="row" id="scBtns" style="margin-top:12px"></div>
+</div></div>
 <div class="toast" id="toast"></div>
 <div class="mock">MOCKUP · simulated data</div>
 
@@ -639,8 +670,85 @@ function history(range){
 function storage(){const k=cleared?0:1;
   return{ok:true,total:1441792,used:24576+k*231720,min:{bytes:k*201600,files:k*7,oldest:''},hour:{bytes:k*28800,files:k*2,oldest:''},day:{bytes:k*1320,files:k,oldest:''}}}
 
+// ---- split ACs over IR (mirrors the split section in the firmware)
+// kind: 0 IR not set up, 1 protocol (the library builds every command), 2 recorded commands (raw replay)
+// st: on, mode (0 auto 1 cool 2 heat 3 dry 4 fan), temp 16..30, fan (0 auto 1 min 2 low 3 medium 4 high 5 max), swing 0/1
+const SP_M=['auto','cool','heat','dry','fan'],SP_F=['auto','min','low','medium','high','max'],NREL=8,SP_MAX_CMD=12;
+// offAt: off timer, ms (0 none; the firmware keeps epoch seconds). offCmd: recorded command sent as "off" (kind 2), -1 none
+const SPL=[
+  {id:0,name:'Living room',relay:2,kind:1,proto:'GREE',model:'YAW1F',st:{on:1,mode:1,temp:24,fan:0,swing:1},at:T0-25*60000,cmds:[],last:'',offAt:T0+80*60000,offCmd:-1},
+  {id:1,name:'Bedroom',relay:3,kind:1,proto:'GREE',model:'YAW1F',st:{on:0,mode:1,temp:23,fan:2,swing:0},at:T0-9*3600e3,cmds:[],last:'',offAt:0,offCmd:-1},
+  {id:2,name:'Kids room',relay:4,kind:2,proto:'',model:'',st:{on:0,mode:1,temp:24,fan:0,swing:0},at:T0-3*86400e3,cmds:['Off','Cool 24 °C','Heat 22 °C'],last:'Off',offAt:0,offCmd:0},
+  {id:3,name:'Office',relay:5,kind:0,proto:'',model:'',st:{on:0,mode:1,temp:24,fan:0,swing:0},at:0,cmds:[],last:'',offAt:0,offCmd:-1}];
+const spU=id=>SPL.find(u=>u.id==id);
+const spUsed=()=>SPL.map(u=>u.relay).concat(C.ac.on?[1]:[]);   // relay 1 belongs to air cond while it is enabled
+function spList(){const now=Date.now(),used=spUsed();
+  return{max:NREL,acRelay:C.ac.on?1:0,free:[...Array(NREL)].map((_,i)=>i+1).filter(r=>!used.includes(r)),
+    list:SPL.map(u=>({id:u.id,name:u.name,relay:u.relay,kind:u.kind,proto:u.proto,model:u.model,st:{...u.st},
+      ago:u.at?Math.floor((now-u.at)/1000):-1,cmds:u.cmds.slice(),last:u.last,offCmd:u.offCmd,
+      offIn:u.offAt?Math.max(0,Math.floor((u.offAt-now)/1000)):-1,offT:u.offAt?Math.floor(u.offAt/1000):0}))}}
+const spDesc=s=>s.on?`${SP_M[s.mode]}${s.mode==4?'':' '+s.temp+' °C'}, fan ${SP_F[s.fan]}${s.swing?', swing':''}`:'off';
+function spTx(u,what){addLog(`IR ${u.name}: relay ${u.relay} closed, sent ${what}, relay open`);u.at=Date.now()}
+function spSend(q){const u=spU(q.id);if(!u)return{ok:false,err:'no such AC'};
+  if(u.kind==1){const n=(k,lo,hi)=>Math.max(lo,Math.min(hi,Math.round(+q[k]||0)));
+    u.st={on:+q.on?1:0,mode:n('mode',0,4),temp:n('temp',16,30),fan:n('fan',0,5),swing:+q.swing?1:0};if(!u.st.on)u.offAt=0;
+    spTx(u,`${u.proto} ${spDesc(u.st)}`);return{ok:true}}
+  if(u.kind==2){const i=+q.cmd;if(!(i>=0&&i<u.cmds.length))return{ok:false,err:'no such command'};u.last=u.cmds[i];if(i==u.offCmd)u.offAt=0;
+    spTx(u,`"${u.cmds[i]}"`);return{ok:true}}
+  return{ok:false,err:'IR not set up'}}
+// off timer: min = minutes from now (0 cancels), or at = minutes since midnight (next time it comes, today or tomorrow)
+function spOffTimer(q){const u=spU(q.id);if(!u)return{ok:false,err:'no such AC'};
+  if(u.kind==1?!u.st.on:u.kind==2?u.offCmd<0:true)return{ok:false,err:u.kind==2?'set the off command first':'the AC is off'};
+  const now=Date.now();
+  if(q.at!=null){const a=+q.at;if(!(a>=0&&a<1440))return{ok:false,err:'bad time'};
+    const d=new Date(now);d.setHours(Math.floor(a/60),a%60,0,0);if(d.getTime()<=now)d.setDate(d.getDate()+1);u.offAt=d.getTime()}
+  else{const m=Math.round(+q.min||0);if(!(m>=0&&m<=1440))return{ok:false,err:'bad time'};u.offAt=m?now+m*60000:0}
+  addLog(`Split AC ${u.name}: `+(u.offAt?`off timer at ${hm(new Date(u.offAt).getHours()*60+new Date(u.offAt).getMinutes())}`:'off timer cancelled'));return{ok:true}}
+function spTick(){const now=Date.now();
+  for(const u of SPL)if(u.offAt&&now>=u.offAt){u.offAt=0;
+    if(u.kind==1&&u.st.on){u.st.on=0;spTx(u,`${u.proto} off (off timer)`)}
+    else if(u.kind==2&&u.offCmd>=0){u.last=u.cmds[u.offCmd];spTx(u,`"${u.last}" (off timer)`)}}}
+function spCfg(q){const u=spU(q.id),name=String(q.name||'').trim(),r=+q.relay;
+  if(!name)return{ok:false,err:'name is empty'};if(name.length>23)return{ok:false,err:'name is too long (23 max)'};
+  if(!(r>=1&&r<=NREL))return{ok:false,err:'bad relay'};
+  if(r!=(u?u.relay:-1)&&spUsed().includes(r))return{ok:false,err:`relay ${r} is in use`+(r==1&&C.ac.on?' by air cond':'')};
+  if(!u){if(SPL.length>=NREL)return{ok:false,err:'no free relay'};const id=Math.max(-1,...SPL.map(x=>x.id))+1;
+    SPL.push({id,name,relay:r,kind:0,proto:'',model:'',st:{on:0,mode:1,temp:24,fan:0,swing:0},at:0,cmds:[],last:'',offAt:0,offCmd:-1});addLog(`Split AC added: ${name} (relay ${r})`);return{ok:true,id}}
+  u.name=name;u.relay=r;
+  if(q.offCmd!=null){const c=+q.offCmd;u.offCmd=c>=0&&c<u.cmds.length?c:-1;if(u.offCmd<0)u.offAt=0}
+  addLog(`Split AC saved: ${name} (relay ${r})`);return{ok:true}}
+function spCopy(q){const u=spU(q.id),f=spU(q.from);if(!u||!f||!f.kind)return{ok:false,err:'nothing to copy'};
+  Object.assign(u,{kind:f.kind,proto:f.proto,model:f.model,cmds:f.cmds.slice(),last:'',offCmd:f.offCmd,offAt:0});addLog(`Split AC ${u.name}: IR copied from ${f.name}`);return{ok:true}}
+// scan: st 0 idle, 1 listening, 2 got a signal, 3 nothing received; the simulated remote is pressed 3 s after the start.
+// Mockup only: odd scans decode as GREE, even scans as an unknown protocol, to show both results.
+const SC={st:0,start:0,n:0,res:null};
+function scanState(){const now=Date.now();
+  if(SC.st==1&&now-SC.start>=3000){SC.st=2;SC.res=SC.n%2?{known:1,proto:'GREE',model:'YAW1F',bits:64,len:139,desc:'Power on, mode cool, 24 °C, fan auto, swing auto'}:
+    {known:0,proto:'UNKNOWN',model:'',bits:0,len:279,desc:''}}
+  return{st:SC.st,left:SC.st==1?Math.max(0,15-Math.floor((now-SC.start)/1000)):0,res:SC.st==2?SC.res:null}}
+function irUse(q){const u=spU(q.id),r=SC.res;if(!u||SC.st!=2||!r||!r.known)return{ok:false,err:'no decoded signal'};
+  Object.assign(u,{kind:1,proto:r.proto,model:r.model,cmds:[],last:'',offCmd:-1,offAt:0});SC.st=0;addLog(`Split AC ${u.name}: IR protocol ${r.proto} ${r.model}`);return{ok:true}}
+function irLearn(q){const u=spU(q.id),r=SC.res,name=String(q.name||'').trim();if(!u||SC.st!=2||!r)return{ok:false,err:'no signal'};
+  if(!name)return{ok:false,err:'command name is empty'};
+  if(u.kind!=2)Object.assign(u,{kind:2,proto:'',model:'',cmds:[],last:'',offCmd:-1,offAt:0});
+  const i=u.cmds.indexOf(name);if(i<0&&u.cmds.length>=SP_MAX_CMD)return{ok:false,err:`up to ${SP_MAX_CMD} commands`};
+  if(i<0){u.cmds.push(name);if(u.offCmd<0&&/^off$/i.test(name))u.offCmd=u.cmds.length-1}   /* a command named "Off" becomes the off command */SC.st=0;addLog(`Split AC ${u.name}: command "${name}" recorded (${r.len} pulses)`);return{ok:true}}
+
 // ---- router
 function route(p,m,q){
+  if(p=='/api/split')return spList();
+  if(p=='/api/split/cfg')return spCfg(q);
+  if(p=='/api/split/del'){const i=SPL.findIndex(u=>u.id==q.id);if(i<0)return{ok:false,err:'no such AC'};addLog(`Split AC deleted: ${SPL[i].name}`);SPL.splice(i,1);return{ok:true}}
+  if(p=='/api/split/send')return spSend(q);
+  if(p=='/api/split/copy')return spCopy(q);
+  if(p=='/api/split/cmddel'){const u=spU(q.id),i=+q.cmd;if(!u||!(i>=0&&i<u.cmds.length))return{ok:false,err:'no such command'};
+    u.cmds.splice(i,1);if(u.offCmd==i){u.offCmd=-1;u.offAt=0}else if(u.offCmd>i)u.offCmd--;
+    if(!u.cmds.length)u.kind=0;return{ok:true}}
+  if(p=='/api/split/offtimer')return spOffTimer(q);
+  if(p=='/api/ir/scan'){if(m=='GET')return scanState();SC.st=1;SC.start=Date.now();SC.n++;SC.res=null;return{ok:true}}
+  if(p=='/api/ir/stop'){SC.st=0;return{ok:true}}
+  if(p=='/api/ir/use')return irUse(q);
+  if(p=='/api/ir/learn')return irLearn(q);
   if(p=='/api/state')return state();
   if(p=='/api/log')return LOG.slice();
   if(p=='/api/config')return m=='GET'?JSON.parse(JSON.stringify(C)):configSet(q);
@@ -676,7 +784,7 @@ setInterval(()=>{lastPoll=Date.now();okc+=2;
   R[18]=(R[18]&~6)|(byp?2:4);
   R[12]=62+(Math.random()<.2?1:0);R[15]=44+(Math.random()<.3?1:0);
   R[14]=byp?R[15]+1:57+(Math.random()<.3?1:0);R[13]=byp?R[12]-1:49+(Math.random()<.3?-1:0);
-  if(!byp&&!(R[18]&8)&&Math.random()<.01){R[18]|=8;setTimeout(()=>R[18]&=~8,20000)}evalRules();timerTick();acTick()},2000);
+  if(!byp&&!(R[18]&8)&&Math.random()<.01){R[18]|=8;setTimeout(()=>R[18]&=~8,20000)}evalRules();timerTick();acTick();spTick()},2000);
 })();
 // ===================== END MOCK BACKEND =====================
 </script>
@@ -725,6 +833,7 @@ function show(t){if(!$(t))t='dash';TAB=t;history.replaceState(null,'','#'+t);doc
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t==t));
  if(t=='settings')renderSettings();
  if(t=='energy')loadEnergy();
+ if(t=='splits')loadSplits();
  if(t=='adv'){renderRegs();loadLog()}}
 $('nav').onclick=e=>{if(e.target.dataset.t)show(e.target.dataset.t)};
 
@@ -917,6 +1026,119 @@ async function saveTimer(){
   TIMER.forEach((d,i)=>q['d'+i]=d.map(p=>p.join(',')).join(','));
   done(await call('/api/config',q),'Timer saved')}
 
+// ---------- split ACs (IR) ----------
+const SPL_MODE=['Auto','Cool','Heat','Dry','Fan'],SPL_FAN=['Auto','Min','Low','Medium','High','Max'];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let SPL=null;const SPL_OPEN={},SPL_T={};
+const splU=id=>SPL&&SPL.list.find(u=>u.id==id);
+async function loadSplits(){const j=await get('/api/split');if(j&&j.list){SPL=j;renderSplits()}}
+function splTxt(u){if(!u.kind)return'IR not set up';
+  if(u.kind==2)return u.last?'last sent: '+u.last:'nothing sent yet';
+  const s=u.st;return s.on?`${SPL_MODE[s.mode]}${s.mode==4?'':' '+s.temp+' °C'} · fan ${SPL_FAN[s.fan].toLowerCase()}${s.swing?' · swing':''}`:'Off'}
+function splRelayOpts(cur){const r=[...SPL.free,...(cur?[cur]:[])].sort((a,b)=>a-b);
+  return r.map(x=>`<option value="${x}" ${x==cur?'selected':''}>Relay ${x}</option>`).join('')}
+function renderSplits(){if(!SPL)return;
+  // dashboard card
+  $('splDash').innerHTML=SPL.list.length?SPL.list.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td class="mut">${esc(splTxt(u))}${u.offIn>=0?(u.offT?' · off at '+splOffAt(u):' · off timer set'):''}</td><td style="text-align:right">`+
+    (u.kind==1?`<label class="switch" title="On / off"><input type="checkbox" ${u.st.on?'checked':''} onchange="splPower(${u.id})"><span class="slider"></span></label>`:'')+
+    `</td></tr>`).join(''):'<tr><td class="mut">No air conditioners added yet.</td></tr>';
+  // tab: keep a settings panel the user is typing in
+  if(document.activeElement&&$('splGrid').contains(document.activeElement)&&document.activeElement.matches('input[type=text],input[type=time],select'))return;
+  $('splGrid').innerHTML=SPL.list.map(splCard).join('');
+  $('splAddBtn').disabled=!SPL.free.length;
+  $('splFree').textContent=SPL.free.length?`Free relays: ${SPL.free.join(', ')}`:'All relays are in use'+(SPL.acRelay?' (relay 1 is used by air cond)':'')}
+function splCard(u){const id=u.id,s=u.st,on=u.kind==1&&!!s.on,dis=on?'':'disabled';
+  let h=`<div class="card"><h3>${esc(u.name)} <span class="reg">relay ${u.relay}${u.kind==1?' · '+esc(u.proto):u.kind==2?' · recorded':''}</span></h3>`;
+  if(!u.kind)h+=`<div class="note warn" style="margin-top:0">IR not set up. Open Settings below and scan the remote, or copy the IR settings from another air conditioner.</div>`;
+  else if(u.kind==1){
+    h+=`<div class="power"><button class="pwr sm ${on?'on':''}" onclick="splPower(${id})" title="On / off">⏻</button>`+
+      `<div><div class="big" style="font-size:22px">${on?SPL_MODE[s.mode]:'Off'}</div><div class="mut">${esc(splTxt(u))}</div></div></div>`+
+      `<div class="row" style="margin-top:10px"><div class="seg">${SPL_MODE.map((m,i)=>`<button class="${s.mode==i?'on':''}" ${dis} onclick="splSet(${id},'mode',${i})">${m}</button>`).join('')}</div></div>`+
+      `<div class="row"><button class="btn" ${on&&s.mode!=4&&s.temp>16?'':'disabled'} onclick="splSet(${id},'temp',${s.temp-1})">−</button>`+
+      `<span class="big" style="font-size:24px;min-width:74px;text-align:center">${s.mode==4?'--':s.temp}<span class="unit"> °C</span></span>`+
+      `<button class="btn" ${on&&s.mode!=4&&s.temp<30?'':'disabled'} onclick="splSet(${id},'temp',${s.temp+1})">+</button></div>`+
+      `<div class="row">Fan <select ${dis} onchange="splSet(${id},'fan',+this.value)">${SPL_FAN.map((f,i)=>`<option value="${i}" ${s.fan==i?'selected':''}>${f}</option>`).join('')}</select>`+
+      `<label><input type="checkbox" ${dis} ${s.swing?'checked':''} onchange="splSet(${id},'swing',this.checked?1:0)"> Swing</label></div>`}
+  else h+=`<div class="row">${u.cmds.map((c,i)=>`<button class="btn ${u.last==c?'pri':''}" onclick="splCmd(${id},${i})">${esc(c)}</button>`).join('')||'<span class="mut">No commands recorded yet.</span>'}</div>`;
+  if(u.kind==1&&on||u.kind==2&&u.offCmd>=0)h+=splOffRow(u);
+  if(u.kind)h+=`<div class="row mut">Last sent: ${u.ago<0?'never':dur(u.ago)+' ago'}`+
+    (u.kind==1?` <button class="btn" onclick="splSend(${id})" title="Send the shown state again, e.g. after the AC was changed with its own remote">Send again</button>`:'')+`</div>`;
+  // settings
+  const others=SPL.list.filter(o=>o.id!=id&&o.kind);
+  const ir=u.kind==1?`${esc(u.proto)}${u.model?', model '+esc(u.model):''} <span class="mut">— commands are built by the controller</span>`:
+    u.kind==2?`Recorded commands (${u.cmds.length})`:'<span class="mut">not set up</span>';
+  h+=`<details ${SPL_OPEN[id]?'open':''} ontoggle="SPL_OPEN[${id}]=this.open"><summary>Settings</summary>`+
+    `<table style="margin-top:6px"><tr><td>Name</td><td><input type="text" id="splN${id}" value="${esc(u.name)}" maxlength="23" style="width:100%"></td></tr>`+
+    `<tr><td>Relay</td><td><select id="splR${id}">${splRelayOpts(u.relay)}</select></td></tr>`+
+    `<tr><td>IR</td><td>${ir}</td></tr>`+
+    (u.kind==2?`<tr><td>Off command</td><td><select id="splOC${id}"><option value="-1">none (no off timer)</option>${u.cmds.map((c,i)=>`<option value="${i}" ${u.offCmd==i?'selected':''}>${esc(c)}</option>`).join('')}</select></td></tr>`:'')+`</table>`;
+  if(u.kind==2)h+=`<table style="margin-top:6px"><tr><th>Recorded command</th><th></th></tr>`+u.cmds.map((c,i)=>`<tr><td>${esc(c)}</td><td style="text-align:right;white-space:nowrap">`+
+    `<button class="btn" onclick="splCmd(${id},${i})">Send</button> <button class="btn" title="Delete" onclick="splCmdDel(${id},${i})">✕</button></td></tr>`).join('')+`</table>`;
+  h+=`<div class="row"><button class="btn pri" onclick="splSave(${id})">Save</button>`+
+    `<button class="btn" onclick="splScan(${id})">${u.kind==2?'Record command':'Scan remote'}</button>`+
+    (others.length?`<select id="splC${id}">${others.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select><button class="btn" onclick="splCopy(${id})">Copy IR</button>`:'')+
+    `<span style="flex:1"></span><button class="btn dng" onclick="splDel(${id})">Delete</button></div></details></div>`;
+  return h}
+// off timer: "in N min" or "at HH:MM" (the next time it comes); turning the AC off by hand cancels it
+const SPL_OFF=[30,60,90,120,180,240,360,480],SPL_AT={};
+const splOffAt=u=>{const t=new Date(u.offT*1000);return hm(t.getHours()*60+t.getMinutes())};
+const splLeft=s=>{const m=Math.ceil(s/60);return m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+m%60+' min':'')};
+function splOffRow(u){const id=u.id;
+  if(u.offIn>=0)return`<div class="row"><span class="flag on">Turns off${u.offT?' at '+splOffAt(u):''}</span><span class="mut">in ${splLeft(u.offIn)}</span>`+
+    `<button class="btn" onclick="splOffSet(${id},{min:0})">Cancel</button></div>`;
+  const at=!!SPL_AT[id];
+  return`<div class="row">Turn off <select onchange="splOffPick(${id},this.value)"><option value="">never</option>`+
+    SPL_OFF.map(m=>`<option value="${m}">in ${m<60?m+' min':m/60+' h'}</option>`).join('')+`<option value="at" ${at?'selected':''}>at time…</option></select>`+
+    (at?`<input type="time" id="splAt${id}" value="23:00"><button class="btn pri" onclick="splOffSet(${id},{at:toMin($('splAt${id}').value)})">Set</button>`:'')+`</div>`}
+function splOffPick(id,v){if(v=='at'){SPL_AT[id]=true;document.activeElement?.blur();renderSplits();$('splAt'+id)?.focus();return}
+  SPL_AT[id]=false;if(v)splOffSet(id,{min:+v})}
+async function splOffSet(id,q){const u=splU(id);document.activeElement?.blur();
+  if(done(await call('/api/split/offtimer',{id,...q}),q.min===0?'Off timer cancelled':`${u.name} will turn off`))SPL_AT[id]=false;
+  await loadSplits()}
+// controls: the change shows at once and is sent 0.6 s after the last click, so − − − sends one command
+function splSet(id,k,v){const u=splU(id);if(!u)return;u.st[k]=v;renderSplits();clearTimeout(SPL_T[id]);SPL_T[id]=setTimeout(()=>splSend(id),600)}
+function splPower(id){const u=splU(id);if(!u)return;u.st.on=u.st.on?0:1;clearTimeout(SPL_T[id]);return splSend(id)}
+async function splSend(id){const u=splU(id);if(!u)return;done(await call('/api/split/send',{id,...u.st}));await loadSplits()}
+async function splCmd(id,i){const u=splU(id);done(await call('/api/split/send',{id,cmd:i}),`${u.name}: “${u.cmds[i]}” sent`);await loadSplits()}
+async function splCmdDel(id,i){const u=splU(id);if(!confirm(`Delete the recorded command “${u.cmds[i]}”?`))return;done(await call('/api/split/cmddel',{id,cmd:i}));await loadSplits()}
+async function splSave(id){if(done(await call('/api/split/cfg',{id,name:$('splN'+id).value,relay:$('splR'+id).value,...($('splOC'+id)?{offCmd:$('splOC'+id).value}:{})}),'Saved')){document.activeElement?.blur();await loadSplits()}}
+async function splAdd(){const r=SPL.free[0],n=SPL.list.length+1;
+  const j=await call('/api/split/cfg',{id:-1,name:'Air conditioner '+n,relay:r});
+  if(done(j,`Added on relay ${r} — set the name and scan the remote`)){SPL_OPEN[j.id]=true;await loadSplits()}}
+async function splDel(id){const u=splU(id);if(!confirm(`Delete “${u.name}” and its IR settings? Relay ${u.relay} becomes free.`))return;
+  if(done(await call('/api/split/del',{id}),'Deleted'))await loadSplits()}
+async function splCopy(id){const u=splU(id),f=splU(+$('splC'+id).value);
+  if(u.kind&&!confirm(`Replace the IR settings of “${u.name}” with those of “${f.name}”?`))return;
+  if(done(await call('/api/split/copy',{id,from:f.id}),`IR copied from ${f.name}`))await loadSplits()}
+// scan dialog
+const SCAN={id:-1,t:0};
+async function splScan(id){const u=splU(id);SCAN.id=id;$('scName').textContent=u.name;$('scanDlg').classList.add('on');
+  if(!done(await call('/api/ir/scan'))){splScanClose();return}scanPoll()}
+async function scanPoll(){clearTimeout(SCAN.t);if(SCAN.id<0)return;const j=await get('/api/ir/scan');if(SCAN.id<0)return;
+  renderScan(j);if(j.st==1)SCAN.t=setTimeout(scanPoll,500)}
+async function splScanClose(){clearTimeout(SCAN.t);SCAN.id=-1;$('scanDlg').classList.remove('on');await call('/api/ir/stop')}
+function renderScan(j){const u=splU(SCAN.id);if(!u)return;
+  const again=`<button class="btn" onclick="splScan(${u.id})">Scan again</button>`,close=`<button class="btn" onclick="splScanClose()">Close</button>`;
+  const learn=`<div class="row">Command name <input type="text" id="scCmd" maxlength="23" placeholder="e.g. Cool 24 °C" style="flex:1"></div>`;
+  let b='',btn='';
+  if(j.st==1){b=`<div class="note" style="margin-top:0">Point the remote at the controller (IR receiver on the board) and press one button, for example ON in cool mode at 24 °C.</div>`+
+    `<div class="big" style="font-size:22px">Listening… <span class="unit">${j.left} s</span></div>`;btn=close}
+  else if(j.st==3){b=`<div class="note warn" style="margin-top:0">Nothing received in 15 s. Hold the remote closer to the controller and try again.</div>`;btn=again+close}
+  else if(j.st==2&&j.res){const r=j.res;
+    b=`<table><tr><td>Protocol</td><td><b>${esc(r.proto)}</b>${r.model?', model '+esc(r.model):''}</td></tr>`+
+      (r.known?`<tr><td>Decoded</td><td>${esc(r.desc)}</td></tr>`:'')+`<tr><td>Signal</td><td>${r.bits?r.bits+' bits, ':''}${r.len} pulses</td></tr></table>`;
+    if(r.known){b+=`<div class="note">The controller knows this protocol and can build every command (on/off, mode, temperature, fan, swing) for “${esc(u.name)}”.</div>`;
+      btn=`<button class="btn pri" onclick="scanUse()">Use ${esc(r.proto)} for ${esc(u.name)}</button>`+again+close+
+        `<details style="width:100%"><summary>Save this signal as a recorded command instead</summary>${learn}<div class="row"><button class="btn" onclick="scanLearn()">Save command</button></div></details>`}
+    else{b+=`<div class="note warn">This protocol is not recognised. Save the signal as a recorded command and the controller will send it unchanged. Record one command for each state you need (for example Off, Cool 24 °C, Heat 22 °C).</div>`+learn+
+        (u.kind==1?`<div class="mut">“${esc(u.name)}” switches from ${esc(u.proto)} to recorded commands.</div>`:'');
+      btn=`<button class="btn pri" onclick="scanLearn()">Save command</button>`+again+close}}
+  $('scBody').innerHTML=b;$('scBtns').innerHTML=btn}
+async function scanUse(){const id=SCAN.id;if(done(await call('/api/ir/use',{id}),'IR protocol set')){SPL_OPEN[id]=false;splScanClose();await loadSplits()}}
+async function scanLearn(){const id=SCAN.id,n=$('scCmd').value.trim();if(!n){toast('Enter a command name');$('scCmd').focus();return}
+  if(done(await call('/api/ir/learn',{id,name:n}),`Command “${n}” saved`)){splScanClose();await loadSplits()}}
+setInterval(()=>{if((TAB=='splits'||TAB=='dash')&&!document.hidden&&SCAN.id<0)loadSplits()},30000);
+
 // ---------- config load ----------
 async function loadConfig(){
   const c=await get('/api/config');if(!c||!c.link)return;CFG=c;
@@ -928,7 +1150,7 @@ async function loadConfig(){
   $('timerOn').checked=!!c.tmr.on;$('rev').value=c.tmr.rev;TIMER=c.tmr.d.map(d=>d.map(p=>p.slice()));renderTimer();
   $('evHeatP').value=c.en.hp;$('evElP').value=c.en.ep;renderFlowTbl(c.en.flow,c.en.fanw);
   const a=c.ac;$('acOn').checked=!!a.on;$('acTgtIn').value=a.tgt;$('acD').value=a.d;$('acHyst').value=a.hyst;$('acHold').value=a.hold;
-  $('acHrs').checked=!!a.hrs;$('acFrom').value=hm(a.from);$('acTo').value=hm(a.to);acHrsUi()}
+  $('acHrs').checked=!!a.hrs;$('acFrom').value=hm(a.from);$('acTo').value=hm(a.to);acHrsUi();loadSplits()}
 function acHrsUi(){$('acFrom').disabled=$('acTo').disabled=!$('acHrs').checked}
 async function saveAc(){
   if($('acHrs').checked&&$('acFrom').value==$('acTo').value){toast('Start and end time must differ');return}
