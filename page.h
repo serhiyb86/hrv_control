@@ -142,7 +142,12 @@ input[type=number]{width:80px}
     </div>
     <div class="card">
       <h3>Air cond <span class="reg">relay 1 · R18 B1</span></h3>
-      <div class="big" id="acBig" style="font-size:24px">--</div>
+      <div class="row" style="justify-content:space-between;margin-top:0">
+        <div class="big" id="acBig" style="font-size:24px">--</div>
+        <label class="row" style="margin:0;cursor:pointer" title="Turn air cond on or off. The other settings are in Automation.">
+          <span class="mut" id="acDashLbl">Off</span>
+          <span class="switch"><input type="checkbox" id="acDashOn" onchange="acToggle(this)"><span class="slider"></span></span></label>
+      </div>
       <div class="mut" id="acWhy"></div>
       <div class="flags" style="margin-top:8px" id="acRelay"></div>
       <table style="margin-top:8px">
@@ -579,7 +584,15 @@ function acStatus(){const a=S.ac;if(!a)return null;
   if(a.relay&&a.ago>=60&&R[18]!=null&&!(R[18]&2))warn='Relay 1 is closed but the unit does not report the bypass open (R18 B1). Check SW4-2 and the wiring.';
   if(!a.relay&&a.ago>=60&&R[18]!=null&&(R[18]&2))warn='The unit reports the bypass open although relay 1 is open (automatic bypass? check SW4-2).';
   return{txt:AC_ST[a.st]||'--',cls:AC_CLS[a.st]||'',why:a.why,warn}}
+// Dashboard toggle: saves the stored air cond settings with only "on" changed
+async function acToggle(el){const a=CFG&&CFG.ac;if(!a){el.checked=!el.checked;return}
+  el.disabled=true;
+  const ok=done(await call('/api/config',{section:'ac',on:el.checked?1:0,tgt:a.tgt,d:a.d,hyst:a.hyst,hold:a.hold,hrs:a.hrs,from:a.from,to:a.to}),
+    el.checked?'Air cond enabled':'Air cond disabled');
+  el.disabled=false;
+  if(ok){a.on=el.checked?1:0;$('acOn').checked=el.checked;await refreshState()}else el.checked=!el.checked}
 function renderAcDash(){const s=acStatus();if(!s)return;const a=S.ac;
+  if(!$('acDashOn').disabled)$('acDashOn').checked=!!a.on;$('acDashLbl').textContent=a.on?'On':'Off';
   $('acBig').textContent=s.txt;$('acBig').style.color=a.st==2?'var(--acc)':a.st==3?'var(--err)':'';
   $('acWhy').textContent=s.why||'';
   $('acRelay').innerHTML=a.relay?flag('Relay 1 closed · bypass on','on'):flag('Relay 1 open');
