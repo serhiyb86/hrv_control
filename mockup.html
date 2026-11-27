@@ -1091,8 +1091,8 @@ function renderEnergy(){
     evTile('Net saving',(tot.kept*hp-tot.fan*ep).toFixed(0),'₴',rangeTxt),
     evTile('Return on fan power',tot.fan>0.001?(tot.kept/tot.fan).toFixed(1):'—','×','kWh of heat kept per kWh of fan electricity'));
   $('evTempSub').textContent=r=='24h'?'10-minute averages':r=='7d'?'hourly averages':'daily averages';
-  const ts=[{name:'Return air (RA)',short:'RA',color:C1,v:T.map(x=>x.ra)},{name:'Fresh air (FR)',short:'FR',color:C2,v:T.map(x=>x.fr)},
-            {name:'Supply air (SA)',short:'SA',color:C4,v:T.map(x=>x.sa)},{name:'Exhaust air (OA)',short:'OA',color:C3,v:T.map(x=>x.oa)}];
+  const ts=[{name:'Return air (RA)',short:'RA',color:C1,v:T.map(x=>x.ra)},{name:'Supply air (SA)',short:'SA',color:C4,v:T.map(x=>x.sa)},
+            {name:'Exhaust air (OA)',short:'OA',color:C3,v:T.map(x=>x.oa)},{name:'Fresh air (FR)',short:'FR',color:C2,v:T.map(x=>x.fr)}];
   evLegend('evTempLeg',ts);
   evLine($('evTemp'),{x:T.map(x=>x.t),series:ts,unit:'°',fmtX:F.tx,fmtTip:F.tt,endLabels:1,aria:'Temperatures, '+rangeTxt});
   const en=[{name:'Heat kept',color:C1,v:B.map(b=>b.kept)},{name:'Heat lost',color:C2,v:B.map(b=>b.lost)}];
