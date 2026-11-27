@@ -615,7 +615,8 @@ function sample(t){const d=new Date(t),doy=(t-new Date(d.getFullYear(),0,1))/864
   const sp=(h<7||h>=23)?2:5,q=C.en.flow[sp],bypass=out>=19&&out<22,heating=out<room&&!bypass;
   const eff=bypass?0.05:0.74-0.006*sp,sup=out+eff*(room-out),exh=room-eff*(room-out);  // sup = SA, exh = OA (exhaust), out = FR (outdoor)
   const kept=heating?0.335*q*(sup-out):0,lost=heating?Math.max(0,0.335*q*(room-sup)):0;
-  return{out,room,exh,sup,kept,lost,fan:C.en.fanw[sp]}}
+  const wd=(d.getDay()+6)%7<5,on=!(wd&&h>=9.5&&h<17);   // simulated unit off on weekdays 09:30-17:00
+  return{on,out,room,exh,sup,kept,lost,fan:C.en.fanw[sp]}}
 function history(range){
   const now=Date.now(),H=36e5,day0=t=>{const d=new Date(t);return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()};
   const lastDays=n=>{const v=[];let d=day0(now);for(let i=0;i<n;i++){v.unshift(d);d=day0(d-H)}return v};
@@ -628,6 +629,7 @@ function history(range){
   const ta=ts.map(()=>({n:0,room:0,out:0,exh:0,sup:0})),ba=bs.map(()=>({n:0,kept:0,lost:0,fan:0,out:0})),sh=step/H;
   const start=Math.min(ts[0],bs[0]);
   for(let t=start+Math.max(0,Math.ceil((cleared-start)/step))*step;t<=now;t+=step){const s=sample(t),i=slot(ts,t),j=slot(bs,t);
+    if(!s.on)continue;   // like the firmware: nothing is recorded while the unit is off
     if(i>=0){const a=ta[i];a.n++;a.room+=s.room;a.out+=s.out;a.exh+=s.exh;a.sup+=s.sup}
     if(j>=0){const b=ba[j];b.n++;b.kept+=s.kept*sh;b.lost+=s.lost*sh;b.fan+=s.fan*sh;b.out+=s.out}}
   const r10=v=>Math.round(v*10);

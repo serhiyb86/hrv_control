@@ -726,11 +726,12 @@ void eachMin(uint32_t t0, uint32_t t1, const SampleCb &cb) {
     char p[24];
     for (uint32_t d = dayStartOf(t0); d < t1; d = nextDay(d)) {
       pathMin(p, d);
-      readRecs(p, sizeof(MinRec), t0, t1, [&](const uint8_t *b) { MinRec r; memcpy(&r, b, sizeof r); cb(fromMin(r)); });
+      readRecs(p, sizeof(MinRec), t0, t1, [&](const uint8_t *b) { MinRec r; memcpy(&r, b, sizeof r); if (r.flags & 1) cb(fromMin(r)); });
     }
   }
+  // flags bit 0 = unit on; minutes with the unit off (only in records from before they stopped being written) are skipped
   for (int i = 0; i < minBufN; i++)
-    if (minBuf[i].t >= t0 && minBuf[i].t < t1) cb(fromMin(minBuf[i]));
+    if (minBuf[i].t >= t0 && minBuf[i].t < t1 && (minBuf[i].flags & 1)) cb(fromMin(minBuf[i]));
 }
 
 void eachHourFiles(uint32_t t0, uint32_t t1, const SampleCb &cb) {
@@ -950,7 +951,7 @@ void energySample() {
   live.fan = on ? (cfg.fanW[ls] + cfg.fanW[le]) / 2.0f : 0;
   live.cool = on && sensorsOk && bypass && qs > 0 ? max(0.0f, 0.335f * qs * (ra - fr)) : 0;   // live only, not in history
 
-  if (!timeValid() || !sensorsOk) return;
+  if (!timeValid() || !sensorsOk || !on) return;   // no history while the unit is off: the charts show a gap
   uint32_t now = nowT(), key = now - now % 60;
   if (macc.n && macc.t != key) finishMinute();
   macc.t = key;
