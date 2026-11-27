@@ -12,6 +12,7 @@ Hardware: HKL-EA8 board (ESP32 + LAN8720 Ethernet + PCF8574 relay expander at 0x
 
 - For any change that affects the UI or UX, update `mockup.html` first (with simulated data) and **stop until the user approves it**. Only then port the change to `page.h` and add any firmware/API changes in `hrv_control.ino`.
 - Firmware-only changes (Modbus, storage, logic with no UI impact) don't need a mockup update.
+- GitHub issues: `.mcp.json` registers GitHub's remote MCP server (issues toolset only). It reads the token from the `GITHUB_HRV_TOKEN` environment variable (fine-grained PAT, this repo only, Issues read/write). Never put the token in the file. Use it to read, create and edit issues; the `gh` CLI on this machine is logged in to a different account without access.
 - Git: commit directly to `main` and push to `origin` after each finished change (no feature branches or PRs). The remote is `git@github-hrv:serhiyb86/hrv_control.git`; `github-hrv` is an SSH host alias from `~/.ssh/config` that selects the right key. Don't rewrite the URL to `github.com`.
 
 ## Build
